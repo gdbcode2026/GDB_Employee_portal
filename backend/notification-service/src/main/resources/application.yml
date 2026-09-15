@@ -1,0 +1,12 @@
+spring:
+  application.name: notification-service
+  datasource.url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:5432/notification_db}
+  datasource.username: ${NOTIFICATION_DB_USERNAME:gdb_notification}
+  datasource.password: ${NOTIFICATION_DB_PASSWORD:local-development-only}
+  jpa.open-in-view: false
+  jpa.hibernate.ddl-auto: validate
+  flyway.enabled: true
+  rabbitmq.host: ${RABBITMQ_HOST:localhost}
+management.endpoints.web.exposure.include: health,info,metrics
+management.endpoint.health.probes.enabled: true
+logging.structured.format.console: logstash

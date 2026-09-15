@@ -2,7 +2,7 @@
 
 Architecture and delivery planning for the employee portal at `www.growdigitalbridge.com/employees`.
 
-This repository currently contains **documentation only**. No application code, service scaffold, business logic, or production deployment manifests have been created.
+Phase 1 adds platform-foundation scaffolding only: a Maven Java 21 backend foundation, API Gateway, audit/notification skeletons, local development dependencies, CI, and a Next.js `/employees` shell. No employee business module or fake authentication has been implemented. See [Phase 1 foundation](docs/PHASE_1_FOUNDATION.md).
 
 ## Proposed architecture
 
@@ -13,4 +13,3 @@ See [architecture documentation](docs/architecture/ARCHITECTURE.md), the [develo
 ## Deliberately deferred
 
 Kubernetes, service mesh, full-text search, data warehouse, payroll calculations, external HR/payroll integrations, and automated workflow rules are not included in the initial implementation scope. See [Decisions](docs/DECISIONS.md).
-

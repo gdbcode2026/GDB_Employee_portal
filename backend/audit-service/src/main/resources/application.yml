@@ -1,0 +1,13 @@
+spring:
+  application.name: audit-service
+  datasource.url: ${AUDIT_DB_URL:jdbc:postgresql://localhost:5432/audit_db}
+  datasource.username: ${AUDIT_DB_USERNAME:gdb_audit}
+  datasource.password: ${AUDIT_DB_PASSWORD:local-development-only}
+  jpa.open-in-view: false
+  jpa.hibernate.ddl-auto: validate
+  flyway.enabled: true
+  rabbitmq.host: ${RABBITMQ_HOST:localhost}
+  rabbitmq.port: ${RABBITMQ_PORT:5672}
+management.endpoints.web.exposure.include: health,info,metrics
+management.endpoint.health.probes.enabled: true
+logging.structured.format.console: logstash

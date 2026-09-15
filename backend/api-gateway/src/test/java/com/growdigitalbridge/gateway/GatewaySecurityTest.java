@@ -1,0 +1,17 @@
+package com.growdigitalbridge.gateway;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.web.reactive.function.client.WebClient;
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class GatewaySecurityTest {
+    @LocalServerPort int port;
+    @Test void returnsUnauthorizedForUnauthenticatedApiRoute() {
+        int status = WebClient.create("http://localhost:" + port).get().uri("/api/v1/audit/events")
+                .exchangeToMono(response -> response.toBodilessEntity().map(entity -> entity.getStatusCode().value())).block();
+        assertThat(status).isEqualTo(401);
+    }
+}
