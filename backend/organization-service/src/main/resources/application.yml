@@ -1,0 +1,22 @@
+server.port: ${SERVER_PORT:8083}
+spring:
+  application.name: organization-service
+  datasource.url: ${ORGANIZATION_DB_URL:jdbc:postgresql://localhost:5432/organization_db}
+  datasource.username: ${ORGANIZATION_DB_USERNAME:gdb_organization}
+  datasource.password: ${ORGANIZATION_DB_PASSWORD:local-development-only}
+  jpa.open-in-view: false
+  jpa.hibernate.ddl-auto: validate
+  flyway.enabled: true
+  rabbitmq.host: ${RABBITMQ_HOST:localhost}
+  rabbitmq.port: ${RABBITMQ_PORT:5672}
+  rabbitmq.username: ${RABBITMQ_USERNAME:gdb_local}
+  rabbitmq.password: ${RABBITMQ_PASSWORD:local-development-only}
+  rabbitmq.listener.simple.retry:
+    enabled: true
+    max-attempts: 3
+    initial-interval: 1000
+    multiplier: 2
+    max-interval: 10000
+management.endpoints.web.exposure.include: health,info,metrics
+management.endpoint.health.probes.enabled: true
+logging.structured.format.console: logstash
