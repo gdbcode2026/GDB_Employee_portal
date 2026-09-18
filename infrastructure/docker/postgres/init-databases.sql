@@ -14,3 +14,5 @@ CREATE USER gdb_project WITH PASSWORD 'local-development-only';
 CREATE DATABASE project_db OWNER gdb_project;
 CREATE USER gdb_performance WITH PASSWORD 'local-development-only';
 CREATE DATABASE performance_db OWNER gdb_performance;
+CREATE USER gdb_document WITH PASSWORD 'local-development-only';
+CREATE DATABASE document_db OWNER gdb_document;

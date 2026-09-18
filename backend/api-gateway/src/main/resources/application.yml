@@ -27,6 +27,9 @@ spring:
     - id: performance-service
       uri: ${GDB_GATEWAY_PERFORMANCE_SERVICE_URI:http://localhost:8088}
       predicates: [ Path=/api/v1/performance/** ]
+    - id: document-service
+      uri: ${GDB_GATEWAY_DOCUMENT_SERVICE_URI:http://localhost:8089}
+      predicates: [ "Path=/api/v1/documents/**,/api/v1/policies/**" ]
 management.endpoints.web.exposure.include: health,info,metrics
 management.endpoint.health.probes.enabled: true
 logging.structured.format.console: logstash
@@ -38,3 +41,4 @@ gdb.gateway.attendance-service-uri: ${GDB_GATEWAY_ATTENDANCE_SERVICE_URI:http://
 gdb.gateway.leave-service-uri: ${GDB_GATEWAY_LEAVE_SERVICE_URI:http://localhost:8086}
 gdb.gateway.project-service-uri: ${GDB_GATEWAY_PROJECT_SERVICE_URI:http://localhost:8087}
 gdb.gateway.performance-service-uri: ${GDB_GATEWAY_PERFORMANCE_SERVICE_URI:http://localhost:8088}
+gdb.gateway.document-service-uri: ${GDB_GATEWAY_DOCUMENT_SERVICE_URI:http://localhost:8089}
