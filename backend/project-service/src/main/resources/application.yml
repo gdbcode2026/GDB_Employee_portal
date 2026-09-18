@@ -1,0 +1,19 @@
+server.port: ${SERVER_PORT:8087}
+spring:
+  application.name: project-service
+  datasource.url: ${PROJECT_DB_URL:jdbc:postgresql://localhost:5432/project_db}
+  datasource.username: ${PROJECT_DB_USERNAME:gdb_project}
+  datasource.password: ${PROJECT_DB_PASSWORD:local-development-only}
+  jpa.open-in-view: false
+  jpa.hibernate.ddl-auto: validate
+  flyway.enabled: true
+  rabbitmq.host: ${RABBITMQ_HOST:localhost}
+  rabbitmq.port: ${RABBITMQ_PORT:5672}
+  rabbitmq.username: ${RABBITMQ_USERNAME:gdb_local}
+  rabbitmq.password: ${RABBITMQ_PASSWORD:local-development-only}
+management.endpoints.web.exposure.include: health,info,metrics
+management.endpoint.health.probes.enabled: true
+logging.structured.format.console: logstash
+gdb.clients.organization-service.base-url: ${GDB_ORGANIZATION_SERVICE_URI:http://localhost:8083}
+gdb.clients.employee-service.base-url: ${GDB_EMPLOYEE_SERVICE_URI:http://localhost:8084}
+gdb.messaging.outbox-relay.fixed-delay-ms: ${OUTBOX_RELAY_FIXED_DELAY_MS:5000}

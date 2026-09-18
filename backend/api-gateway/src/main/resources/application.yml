@@ -21,6 +21,9 @@ spring:
     - id: leave-service
       uri: ${GDB_GATEWAY_LEAVE_SERVICE_URI:http://localhost:8086}
       predicates: [ Path=/api/v1/leave/** ]
+    - id: project-service
+      uri: ${GDB_GATEWAY_PROJECT_SERVICE_URI:http://localhost:8087}
+      predicates: [ "Path=/api/v1/projects/**,/api/v1/tasks/**" ]
 management.endpoints.web.exposure.include: health,info,metrics
 management.endpoint.health.probes.enabled: true
 logging.structured.format.console: logstash
@@ -30,3 +33,4 @@ gdb.gateway.organization-service-uri: ${GDB_GATEWAY_ORGANIZATION_SERVICE_URI:htt
 gdb.gateway.employee-service-uri: ${GDB_GATEWAY_EMPLOYEE_SERVICE_URI:http://localhost:8084}
 gdb.gateway.attendance-service-uri: ${GDB_GATEWAY_ATTENDANCE_SERVICE_URI:http://localhost:8085}
 gdb.gateway.leave-service-uri: ${GDB_GATEWAY_LEAVE_SERVICE_URI:http://localhost:8086}
+gdb.gateway.project-service-uri: ${GDB_GATEWAY_PROJECT_SERVICE_URI:http://localhost:8087}

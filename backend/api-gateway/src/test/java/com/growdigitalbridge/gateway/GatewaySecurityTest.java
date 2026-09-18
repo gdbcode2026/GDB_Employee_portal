@@ -38,4 +38,16 @@ class GatewaySecurityTest {
                 .exchangeToMono(response -> response.toBodilessEntity().map(entity -> entity.getStatusCode().value())).block();
         assertThat(status).isEqualTo(401);
     }
+
+    @Test void returnsUnauthorizedForUnauthenticatedProjectRoute() {
+        int status = WebClient.create("http://localhost:" + port).get().uri("/api/v1/projects")
+                .exchangeToMono(response -> response.toBodilessEntity().map(entity -> entity.getStatusCode().value())).block();
+        assertThat(status).isEqualTo(401);
+    }
+
+    @Test void returnsUnauthorizedForUnauthenticatedTaskRoute() {
+        int status = WebClient.create("http://localhost:" + port).get().uri("/api/v1/tasks/me")
+                .exchangeToMono(response -> response.toBodilessEntity().map(entity -> entity.getStatusCode().value())).block();
+        assertThat(status).isEqualTo(401);
+    }
 }
