@@ -12,3 +12,5 @@ CREATE USER gdb_leave WITH PASSWORD 'local-development-only';
 CREATE DATABASE leave_db OWNER gdb_leave;
 CREATE USER gdb_project WITH PASSWORD 'local-development-only';
 CREATE DATABASE project_db OWNER gdb_project;
+CREATE USER gdb_performance WITH PASSWORD 'local-development-only';
+CREATE DATABASE performance_db OWNER gdb_performance;
