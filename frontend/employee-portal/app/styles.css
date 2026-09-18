@@ -1,1 +1,244 @@
-:root{color-scheme:light;font-family:Arial,sans-serif;color:#16243a;background:#f7f9fc}body{margin:0}main{max-width:70rem;margin:auto;padding:2rem}header{border-bottom:1px solid #dbe3ed}.brand{font-weight:700;color:#075e8c}.skip-link{position:absolute;left:-9999px}.skip-link:focus{left:1rem;top:1rem;background:#fff;padding:.5rem;z-index:1}section{margin-top:2rem;background:#fff;border-radius:.5rem;padding:1.5rem;box-shadow:0 1px 3px #0002}h1,h2{line-height:1.2}
+:root {
+  color-scheme: light;
+  font-family: Arial, sans-serif;
+  color: #16243a;
+  background: #f7f9fc;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 70rem;
+  margin: auto;
+  padding: 2rem;
+}
+header {
+  border-bottom: 1px solid #dbe3ed;
+  padding: 1rem 2rem 0;
+}
+.brand {
+  font-weight: 700;
+  color: #075e8c;
+  margin: 0;
+}
+.skip-link {
+  position: absolute;
+  left: -9999px;
+}
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+  background: #fff;
+  padding: .5rem;
+  z-index: 1;
+}
+section {
+  margin-top: 2rem;
+  background: #fff;
+  border-radius: .5rem;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px #0002;
+}
+h1, h2, h3 {
+  line-height: 1.2;
+}
+
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #075e8c;
+  outline-offset: 2px;
+}
+
+/* Navigation */
+.portal-nav ul {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0;
+  margin: .5rem 0 1rem;
+}
+.portal-nav a {
+  text-decoration: none;
+  color: #075e8c;
+  padding: .25rem .5rem;
+  border-radius: .25rem;
+}
+.portal-nav a[aria-current="page"] {
+  background: #075e8c;
+  color: #fff;
+}
+
+/* Notices */
+.notice {
+  border-left: 4px solid #075e8c;
+  background: #eef6fb;
+}
+.notice-warning {
+  border-left-color: #a15c00;
+  background: #fdf3e3;
+}
+.notice-info {
+  border-left-color: #075e8c;
+}
+.empty-state, .muted {
+  color: #5b6b81;
+}
+
+/* Summary lists */
+.summary-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+  margin: 0;
+}
+.summary-list > div {
+  display: flex;
+  flex-direction: column;
+}
+.summary-list dt {
+  font-size: .8rem;
+  text-transform: uppercase;
+  color: #5b6b81;
+}
+.summary-list dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* Forms */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  max-width: 28rem;
+  margin: 1rem 0;
+}
+form label {
+  font-weight: 600;
+}
+form input, form select {
+  padding: .5rem;
+  border: 1px solid #c3cedd;
+  border-radius: .25rem;
+  font: inherit;
+}
+form button {
+  align-self: flex-start;
+  padding: .5rem 1rem;
+  border: none;
+  border-radius: .25rem;
+  background: #075e8c;
+  color: #fff;
+  cursor: pointer;
+}
+form button:disabled {
+  opacity: .6;
+  cursor: progress;
+}
+.field-error {
+  color: #b3261e;
+}
+
+/* Directory */
+.search-form {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  max-width: none;
+}
+.search-form > div {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+.directory-list {
+  list-style: none;
+  padding: 0;
+}
+.directory-list li {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .25rem;
+  padding: .5rem 0;
+  border-bottom: 1px solid #eef1f5;
+}
+.directory-meta {
+  color: #5b6b81;
+}
+
+/* Organization chart */
+.org-chart {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+.team-list {
+  list-style: none;
+  padding-left: 1rem;
+}
+.code-badge {
+  font-size: .75rem;
+  color: #5b6b81;
+}
+
+/* Emergency contacts */
+.contact-list {
+  list-style: none;
+  padding: 0;
+}
+.contact-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: .5rem 0;
+  border-bottom: 1px solid #eef1f5;
+}
+.contact-list form {
+  margin: 0;
+}
+.add-contact-form {
+  margin-top: 1.5rem;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+.pagination [aria-disabled="true"] {
+  color: #9aa7b8;
+}
+
+.loading-indicator {
+  color: #5b6b81;
+}
+
+.quick-links {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 40rem) {
+  main {
+    padding: 1rem;
+  }
+  header {
+    padding: 1rem 1rem 0;
+  }
+  section {
+    padding: 1rem;
+  }
+  .directory-list li, .contact-list li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: .25rem;
+  }
+}
