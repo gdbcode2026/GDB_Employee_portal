@@ -1,0 +1,19 @@
+server.port: ${SERVER_PORT:8086}
+spring:
+  application.name: leave-service
+  datasource.url: ${LEAVE_DB_URL:jdbc:postgresql://localhost:5432/leave_db}
+  datasource.username: ${LEAVE_DB_USERNAME:gdb_leave}
+  datasource.password: ${LEAVE_DB_PASSWORD:local-development-only}
+  jpa.open-in-view: false
+  jpa.hibernate.ddl-auto: validate
+  flyway.enabled: true
+  rabbitmq.host: ${RABBITMQ_HOST:localhost}
+  rabbitmq.port: ${RABBITMQ_PORT:5672}
+  rabbitmq.username: ${RABBITMQ_USERNAME:gdb_local}
+  rabbitmq.password: ${RABBITMQ_PASSWORD:local-development-only}
+management.endpoints.web.exposure.include: health,info,metrics
+management.endpoint.health.probes.enabled: true
+logging.structured.format.console: logstash
+gdb.clients.organization-service.base-url: ${GDB_ORGANIZATION_SERVICE_URI:http://localhost:8083}
+gdb.clients.employee-service.base-url: ${GDB_EMPLOYEE_SERVICE_URI:http://localhost:8084}
+gdb.messaging.outbox-relay.fixed-delay-ms: ${OUTBOX_RELAY_FIXED_DELAY_MS:5000}

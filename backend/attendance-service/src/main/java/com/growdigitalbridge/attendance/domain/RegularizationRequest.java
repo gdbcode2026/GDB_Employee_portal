@@ -1,0 +1,99 @@
+package com.growdigitalbridge.attendance.domain;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.UUID;
+
+/** A requested correction to a work date's check-in/check-out; applied to the AttendanceRecord only on approval. */
+@Entity
+@Table(name = "regularization_requests")
+public class RegularizationRequest {
+
+    @Id
+    private UUID id;
+
+    @Column(name = "employee_ref", nullable = false)
+    private UUID employeeRef;
+
+    @Column(name = "work_date", nullable = false)
+    private LocalDate workDate;
+
+    @Column(name = "requested_check_in_at")
+    private Instant requestedCheckInAt;
+
+    @Column(name = "requested_check_out_at")
+    private Instant requestedCheckOutAt;
+
+    @Column(nullable = false, length = 500)
+    private String reason;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private RegularizationStatus status;
+
+    @Column(name = "decided_by", length = 128)
+    private String decidedBy;
+
+    @Column(name = "decided_at")
+    private Instant decidedAt;
+
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(length = 128, updatable = false)
+    private String createdBy;
+
+    @Column(nullable = false)
+    private Instant updatedAt;
+
+    @Column(length = 128)
+    private String updatedBy;
+
+    @Version
+    private long version;
+
+    protected RegularizationRequest() { }
+
+    public RegularizationRequest(UUID id, UUID employeeRef, LocalDate workDate, Instant requestedCheckInAt,
+                                  Instant requestedCheckOutAt, String reason, String actor, Instant now) {
+        this.id = id;
+        this.employeeRef = employeeRef;
+        this.workDate = workDate;
+        this.requestedCheckInAt = requestedCheckInAt;
+        this.requestedCheckOutAt = requestedCheckOutAt;
+        this.reason = reason;
+        this.status = RegularizationStatus.SUBMITTED;
+        this.createdAt = now;
+        this.createdBy = actor;
+        this.updatedAt = now;
+        this.updatedBy = actor;
+    }
+
+    public void decide(RegularizationStatus decision, String actor, Instant now) {
+        this.status = decision;
+        this.decidedBy = actor;
+        this.decidedAt = now;
+        this.updatedBy = actor;
+        this.updatedAt = now;
+    }
+
+    public UUID getId() { return id; }
+    public UUID getEmployeeRef() { return employeeRef; }
+    public LocalDate getWorkDate() { return workDate; }
+    public Instant getRequestedCheckInAt() { return requestedCheckInAt; }
+    public Instant getRequestedCheckOutAt() { return requestedCheckOutAt; }
+    public String getReason() { return reason; }
+    public RegularizationStatus getStatus() { return status; }
+    public String getDecidedBy() { return decidedBy; }
+    public Instant getDecidedAt() { return decidedAt; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public long getVersion() { return version; }
+}

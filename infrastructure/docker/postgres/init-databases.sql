@@ -6,3 +6,7 @@ CREATE USER gdb_organization WITH PASSWORD 'local-development-only';
 CREATE DATABASE organization_db OWNER gdb_organization;
 CREATE USER gdb_employee WITH PASSWORD 'local-development-only';
 CREATE DATABASE employee_db OWNER gdb_employee;
+CREATE USER gdb_attendance WITH PASSWORD 'local-development-only';
+CREATE DATABASE attendance_db OWNER gdb_attendance;
+CREATE USER gdb_leave WITH PASSWORD 'local-development-only';
+CREATE DATABASE leave_db OWNER gdb_leave;
