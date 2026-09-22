@@ -62,4 +62,10 @@ class GatewaySecurityTest {
                 .exchangeToMono(response -> response.toBodilessEntity().map(entity -> entity.getStatusCode().value())).block();
         assertThat(status).isEqualTo(401);
     }
+
+    @Test void returnsUnauthorizedForUnauthenticatedWorkflowRoute() {
+        int status = WebClient.create("http://localhost:" + port).get().uri("/api/v1/workflows/tasks/me")
+                .exchangeToMono(response -> response.toBodilessEntity().map(entity -> entity.getStatusCode().value())).block();
+        assertThat(status).isEqualTo(401);
+    }
 }
