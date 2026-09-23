@@ -6,8 +6,11 @@ import com.growdigitalbridge.workflow.api.dto.WorkflowInstanceDtos;
 import com.growdigitalbridge.workflow.client.EmployeeClient;
 import com.growdigitalbridge.workflow.client.OrganizationClient;
 import com.growdigitalbridge.workflow.domain.RequestType;
+import com.growdigitalbridge.workflow.repository.ProcessedEventRepository;
 import com.growdigitalbridge.platform.common.event.DomainEvent;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.AmqpAdmin;
@@ -38,8 +41,10 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Proves the outbox relay actually publishes {@code workflow.completed.v1} to a real broker
- * when an instance is cancelled, mirroring the other services' messaging integration test shape.
+ * Proves both directions of messaging against a real broker: cancelling an instance publishes
+ * {@code workflow.completed.v1} through the outbox relay, and a real {@code
+ * employee.deactivated.v1} message delivered to the shared exchange is idempotently recorded
+ * by {@link EmployeeEventListener}.
  */
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -64,6 +69,7 @@ class WorkflowMessagingIntegrationTest {
     @Autowired private AmqpAdmin amqpAdmin;
     @Autowired private RabbitTemplate rabbitTemplate;
     @Autowired private TopicExchange domainEventsExchange;
+    @Autowired private ProcessedEventRepository processedEventRepository;
 
     @MockitoBean
     private EmployeeClient employeeClient;
@@ -107,6 +113,29 @@ class WorkflowMessagingIntegrationTest {
         assertThat(received.aggregateId()).isEqualTo(instance.id());
         assertThat(received.producer()).isEqualTo("workflow-service");
         assertThat(received.payload()).containsEntry("outcome", "CANCELLED");
+    }
+
+    @Test
+    void employeeDeactivatedEventIsConsumedIdempotently() throws InterruptedException {
+        UUID eventId = UUID.randomUUID();
+        UUID employeeRef = UUID.randomUUID();
+        DomainEvent event = new DomainEvent(eventId, "employee.deactivated.v1", 1, Instant.now(), UUID.randomUUID(),
+                "employee-service", employeeRef, Map.of("employeeId", employeeRef.toString(), "effectiveAt", Instant.now().toString()));
+
+        rabbitTemplate.convertAndSend("gdb.domain.events", "employee.deactivated.v1", event);
+        rabbitTemplate.convertAndSend("gdb.domain.events", "employee.deactivated.v1", event);
+
+        assertThat(awaitProcessed(eventId)).isTrue();
+    }
+
+    private boolean awaitProcessed(UUID eventId) throws InterruptedException {
+        for (int attempt = 0; attempt < 30; attempt++) {
+            if (processedEventRepository.existsById(eventId)) {
+                return true;
+            }
+            Thread.sleep(300);
+        }
+        return false;
     }
 
     private DomainEvent awaitMessage(String queueName) throws InterruptedException {
