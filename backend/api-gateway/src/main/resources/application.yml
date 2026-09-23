@@ -33,6 +33,9 @@ spring:
     - id: workflow-service
       uri: ${GDB_GATEWAY_WORKFLOW_SERVICE_URI:http://localhost:8090}
       predicates: [ Path=/api/v1/workflows/** ]
+    - id: asset-service
+      uri: ${GDB_GATEWAY_ASSET_SERVICE_URI:http://localhost:8091}
+      predicates: [ "Path=/api/v1/assets/**,/api/v1/assignments/**,/api/v1/asset-requests/**" ]
 management.endpoints.web.exposure.include: health,info,metrics
 management.endpoint.health.probes.enabled: true
 logging.structured.format.console: logstash
@@ -46,3 +49,4 @@ gdb.gateway.project-service-uri: ${GDB_GATEWAY_PROJECT_SERVICE_URI:http://localh
 gdb.gateway.performance-service-uri: ${GDB_GATEWAY_PERFORMANCE_SERVICE_URI:http://localhost:8088}
 gdb.gateway.document-service-uri: ${GDB_GATEWAY_DOCUMENT_SERVICE_URI:http://localhost:8089}
 gdb.gateway.workflow-service-uri: ${GDB_GATEWAY_WORKFLOW_SERVICE_URI:http://localhost:8090}
+gdb.gateway.asset-service-uri: ${GDB_GATEWAY_ASSET_SERVICE_URI:http://localhost:8091}
