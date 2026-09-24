@@ -25,4 +25,5 @@
 - Approval delegation/escalation policy.
 - Payroll geography and provider integration.
 - Whether internal support tickets belong to an existing external system or a future GDB domain service.
+- Document Request's purpose, ownership, database/API/permission model, and whether Document Service consumes `WORKFLOW_COMPLETED` — deferred pending resolution (see [Architecture Review](ARCHITECTURE_REVIEW.md) decision #6).
 
