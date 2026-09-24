@@ -20,3 +20,5 @@ CREATE USER gdb_workflow WITH PASSWORD 'local-development-only';
 CREATE DATABASE workflow_db OWNER gdb_workflow;
 CREATE USER gdb_asset WITH PASSWORD 'local-development-only';
 CREATE DATABASE asset_db OWNER gdb_asset;
+CREATE USER gdb_expense WITH PASSWORD 'local-development-only';
+CREATE DATABASE expense_db OWNER gdb_expense;

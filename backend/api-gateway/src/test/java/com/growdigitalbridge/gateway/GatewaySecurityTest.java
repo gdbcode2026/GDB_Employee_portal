@@ -74,4 +74,10 @@ class GatewaySecurityTest {
                 .exchangeToMono(response -> response.toBodilessEntity().map(entity -> entity.getStatusCode().value())).block();
         assertThat(status).isEqualTo(401);
     }
+
+    @Test void returnsUnauthorizedForUnauthenticatedExpenseRoute() {
+        int status = WebClient.create("http://localhost:" + port).get().uri("/api/v1/expenses/claims")
+                .exchangeToMono(response -> response.toBodilessEntity().map(entity -> entity.getStatusCode().value())).block();
+        assertThat(status).isEqualTo(401);
+    }
 }
