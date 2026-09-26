@@ -1,5 +1,6 @@
 package com.growdigitalbridge.document.api;
 
+import com.growdigitalbridge.document.service.exception.ConflictException;
 import com.growdigitalbridge.document.service.exception.InvalidLifecycleTransitionException;
 import com.growdigitalbridge.document.service.exception.ResourceNotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -39,6 +40,11 @@ class ApiExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     ProblemDetail handleAccessDenied(AccessDeniedException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    ProblemDetail handleConflict(ConflictException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

@@ -108,6 +108,37 @@ class DocumentMessagingIntegrationTest {
     }
 
     @Test
+    void completingAWorkloadUploadIsAuditedThroughTheSameDomainEventsExchange() throws Exception {
+        UUID employeeOwner = UUID.randomUUID();
+
+        Queue testQueue = new Queue("test.document.uploaded.v1.workload", false, false, true);
+        amqpAdmin.declareQueue(testQueue);
+        amqpAdmin.declareBinding(BindingBuilder.bind(testQueue).to(domainEventsExchange).with("document.uploaded.v1"));
+
+        MvcResult created = mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(employeeOwner, "PAYSLIP", "application/pdf", 2048L, "sha256-workload-evt"))))
+                .andExpect(status().isCreated()).andReturn();
+        DocumentDtos.Response document = objectMapper.readValue(created.getResponse().getContentAsString(), DocumentDtos.Response.class);
+
+        mockMvc.perform(post("/api/v1/documents/uploads/" + document.id() + "/complete")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DocumentDtos.CompleteRequest("sha256-workload-evt"))))
+                .andExpect(status().isOk());
+
+        DomainEvent received = awaitMessage(testQueue.getName());
+
+        assertThat(received).isNotNull();
+        assertThat(received.eventType()).isEqualTo("document.uploaded.v1");
+        assertThat(received.aggregateId()).isEqualTo(document.id());
+        assertThat(received.payload()).containsEntry("ownerId", employeeOwner.toString());
+        assertThat(received.payload()).containsEntry("scanStatus", "CLEAN");
+    }
+
+    @Test
     void employeeDeactivatedEventIsConsumedIdempotently() throws InterruptedException {
         UUID eventId = UUID.randomUUID();
         UUID employeeRef = UUID.randomUUID();

@@ -71,6 +71,7 @@ public class Document {
     public UUID getOwnerRef() { return ownerRef; }
     public String getClassification() { return classification; }
     public DocumentStatus getStatus() { return status; }
+    public String getCreatedBy() { return createdBy; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public long getVersion() { return version; }

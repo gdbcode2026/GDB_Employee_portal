@@ -40,6 +40,15 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
  * {@code document.manage} is treated as an unrestricted-read/admin-override authority,
  * matching the flat "manage" permission shape already established by project.manage and
  * performance.manage elsewhere in this platform.
+ *
+ * {@code workload.document.upload} gates {@code POST /documents/workload-uploads} only. It is
+ * deliberately not a {@code document.*} RBAC.md user permission: it identifies an authorized
+ * backend workload (currently Payroll Service, granted via OAuth2 client credentials per
+ * {@code docs/security/SECURITY.md}'s already-documented workload-identity pattern), never a
+ * relayed employee token. A normal employee token - however many {@code document.*} permissions
+ * it carries - never has this authority and is therefore denied at this layer, before any
+ * service-layer logic runs. See {@code docs/api/API.md}'s Documents section and
+ * {@code docs/PAYROLL_REQUIREMENTS.md} Section N/U for the full contract.
  */
 @Configuration
 public class SecurityConfig {
@@ -62,8 +71,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/documents/uploads/*/complete")
-                        .hasAnyAuthority("document.upload.self", "document.manage")
+                        .hasAnyAuthority("document.upload.self", "document.manage", "workload.document.upload")
                         .requestMatchers(HttpMethod.POST, "/api/v1/documents/uploads").hasAuthority("document.upload.self")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/documents/workload-uploads").hasAuthority("workload.document.upload")
                         .requestMatchers(HttpMethod.GET, "/api/v1/documents/*/download")
                         .hasAnyAuthority("document.read.self", "document.read.team", "document.read.all", "document.manage")
                         .requestMatchers(HttpMethod.GET, "/api/v1/documents/*")

@@ -91,8 +91,8 @@ class DocumentAccessGuardTest {
         var selfAuth = authenticationFor("uploader-subject", "document.upload.self");
         var adminAuth = authenticationFor("admin-subject", "document.manage");
 
-        assertThat(guard().canComplete(selfAuth, uploader)).isTrue();
-        assertThat(guard().canComplete(adminAuth, UUID.randomUUID())).isTrue();
+        assertThat(guard().canComplete(selfAuth, uploader, "uploader-subject", "uploader-subject")).isTrue();
+        assertThat(guard().canComplete(adminAuth, UUID.randomUUID(), "admin-subject", "someone-else")).isTrue();
     }
 
     @Test
@@ -100,6 +100,28 @@ class DocumentAccessGuardTest {
         when(employeeClient.resolveSelfEmployeeRef()).thenReturn(Optional.of(UUID.randomUUID()));
         var auth = authenticationFor("subject", "document.upload.self");
 
-        assertThat(guard().canComplete(auth, UUID.randomUUID())).isFalse();
+        assertThat(guard().canComplete(auth, UUID.randomUUID(), "subject", "someone-else")).isFalse();
+    }
+
+    @Test
+    void canCompleteAllowsTheSameWorkloadIdentityThatCreatedTheDocument() {
+        var workloadAuth = authenticationFor("payroll-service", "workload.document.upload");
+
+        assertThat(guard().canComplete(workloadAuth, UUID.randomUUID(), "payroll-service", "payroll-service")).isTrue();
+    }
+
+    @Test
+    void canCompleteDeniesAWorkloadIdentityCompletingSomeoneElsesDocument() {
+        var workloadAuth = authenticationFor("payroll-service", "workload.document.upload");
+
+        assertThat(guard().canComplete(workloadAuth, UUID.randomUUID(), "payroll-service", "a-different-workload")).isFalse();
+    }
+
+    @Test
+    void canCompleteDeniesANormalEmployeeHoldingOnlySelfAuthorityFromActingAsAWorkload() {
+        when(employeeClient.resolveSelfEmployeeRef()).thenReturn(Optional.of(UUID.randomUUID()));
+        var auth = authenticationFor("employee-subject", "document.upload.self");
+
+        assertThat(guard().canComplete(auth, UUID.randomUUID(), "employee-subject", "employee-subject")).isFalse();
     }
 }

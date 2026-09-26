@@ -7,6 +7,7 @@ import com.growdigitalbridge.document.domain.DocumentVersion;
 import com.growdigitalbridge.document.domain.ScanStatus;
 import com.growdigitalbridge.document.repository.DocumentRepository;
 import com.growdigitalbridge.document.repository.DocumentVersionRepository;
+import com.growdigitalbridge.document.service.exception.ConflictException;
 import com.growdigitalbridge.document.service.exception.InvalidLifecycleTransitionException;
 import com.growdigitalbridge.document.service.exception.ResourceNotFoundException;
 import java.time.Instant;
@@ -55,6 +56,34 @@ public class DocumentService {
         return toResponse(document, version);
     }
 
+    /**
+     * {@code POST /documents/workload-uploads}: an authorized backend workload (never a
+     * relayed employee token, per {@code SecurityConfig}'s {@code workload.document.upload}
+     * gate) creates a document on behalf of an explicitly supplied {@code ownerRef}. Reuses the
+     * exact same {@code PENDING_SCAN} creation this constructor already performs for self-service
+     * uploads - the workload must still call {@code POST /documents/uploads/{id}/complete} to
+     * reach {@code AVAILABLE}/{@code QUARANTINED}, exactly like a self-service upload, so no
+     * second storage/scan mechanism is introduced. Idempotent per {@code (ownerRef, checksum)}:
+     * a duplicate submission is rejected as a conflict rather than creating a second document,
+     * mirroring Attendance Service's own natural-idempotency-guard precedent.
+     */
+    @Transactional
+    public DocumentDtos.Response uploadOnBehalf(DocumentDtos.WorkloadUploadRequest request, String actor) {
+        repository.findByOwnerRefAndChecksum(request.ownerRef(), request.checksum()).ifPresent(existing -> {
+            throw new ConflictException("A document for owner " + request.ownerRef() + " with this checksum already exists.");
+        });
+
+        Instant now = Instant.now();
+        Document document = new Document(UUID.randomUUID(), request.ownerRef(), request.classification(), actor, now);
+        repository.save(document);
+
+        DocumentVersion version = new DocumentVersion(UUID.randomUUID(), document.getId(), 1, UUID.randomUUID().toString(),
+                request.checksum(), request.mimeType(), request.sizeBytes(), actor, now);
+        versionRepository.save(version);
+
+        return toResponse(document, version);
+    }
+
     @Transactional(readOnly = true)
     public DocumentDtos.Response getById(UUID id, Authentication authentication) {
         Document document = repository.findById(id)
@@ -70,7 +99,7 @@ public class DocumentService {
                                            String actor, UUID correlationId) {
         Document document = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Document " + id + " was not found."));
-        if (!accessGuard.canComplete(authentication, document.getOwnerRef())) {
+        if (!accessGuard.canComplete(authentication, document.getOwnerRef(), actor, document.getCreatedBy())) {
             throw new ResourceNotFoundException("Document " + id + " was not found.");
         }
         DocumentVersion version = latestVersion(id);

@@ -215,4 +215,167 @@ class DocumentIntegrationTest {
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andExpect(jsonPath("$.title").value("Remote Work Policy v2"));
     }
+
+    // --- POST /documents/workload-uploads ---
+
+    @Test
+    void authorizedWorkloadCanUploadOnBehalfOfAnExplicitOwner() throws Exception {
+        UUID employeeOwner = UUID.randomUUID();
+
+        MvcResult result = mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(employeeOwner, "PAYSLIP", "application/pdf", 2048L, "sha256-workload"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.ownerRef").value(employeeOwner.toString()))
+                .andExpect(jsonPath("$.status").value("PENDING_SCAN"))
+                .andReturn();
+        DocumentDtos.Response created = objectMapper.readValue(result.getResponse().getContentAsString(), DocumentDtos.Response.class);
+
+        // The workload identity that created it may complete it, reusing the existing endpoint/lifecycle.
+        mockMvc.perform(post("/api/v1/documents/uploads/" + created.id() + "/complete")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DocumentDtos.CompleteRequest("sha256-workload"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("AVAILABLE"));
+
+        // The owning employee can now download it through the existing, unchanged self-service flow.
+        when(employeeClient.resolveSelfEmployeeRef()).thenReturn(Optional.of(employeeOwner));
+        mockMvc.perform(get("/api/v1/documents/" + created.id() + "/download")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("document.read.self"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.checksum").value("sha256-workload"));
+    }
+
+    @Test
+    void workloadCompleteReusesTheExistingQuarantineGate() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(UUID.randomUUID(), "PAYSLIP", "application/pdf", 2048L, "sha256-quarantine-original"))))
+                .andExpect(status().isCreated()).andReturn();
+        DocumentDtos.Response created = objectMapper.readValue(result.getResponse().getContentAsString(), DocumentDtos.Response.class);
+
+        mockMvc.perform(post("/api/v1/documents/uploads/" + created.id() + "/complete")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DocumentDtos.CompleteRequest("sha256-different-on-complete"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("QUARANTINED"))
+                .andExpect(jsonPath("$.latestVersion.scanStatus").value("QUARANTINED"));
+    }
+
+    @Test
+    void duplicateWorkloadUploadForTheSameOwnerAndChecksumIsRejectedAsAConflict() throws Exception {
+        UUID employeeOwner = UUID.randomUUID();
+        DocumentDtos.WorkloadUploadRequest request = new DocumentDtos.WorkloadUploadRequest(
+                employeeOwner, "PAYSLIP", "application/pdf", 2048L, "sha256-idempotent");
+
+        mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void missingOwnerRefIsRejectedAsAValidationError() throws Exception {
+        String bodyWithoutOwnerRef = """
+                {"classification":"PAYSLIP","mimeType":"application/pdf","sizeBytes":2048,"checksum":"sha256-x"}""";
+
+        mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWithoutOwnerRef))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void invalidMimeTypeIsRejectedAsAValidationError() throws Exception {
+        mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(UUID.randomUUID(), "PAYSLIP", "", 2048L, "sha256-x"))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void nonPositiveSizeIsRejectedAsAValidationError() throws Exception {
+        mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(UUID.randomUUID(), "PAYSLIP", "application/pdf", 0L, "sha256-x"))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void blankChecksumIsRejectedAsAValidationError() throws Exception {
+        mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(UUID.randomUUID(), "PAYSLIP", "application/pdf", 2048L, ""))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void overlongClassificationIsRejectedAsAValidationError() throws Exception {
+        String tooLong = "x".repeat(201);
+
+        mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(UUID.randomUUID(), tooLong, "application/pdf", 2048L, "sha256-x"))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void unauthenticatedRequestIsRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(UUID.randomUUID(), "PAYSLIP", "application/pdf", 2048L, "sha256-x"))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aNormalEmployeeTokenCannotUseTheWorkloadEndpoint() throws Exception {
+        mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("document.upload.self"), new SimpleGrantedAuthority("document.manage")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(UUID.randomUUID(), "PAYSLIP", "application/pdf", 2048L, "sha256-x"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void aDifferentActorCannotCompleteAWorkloadCreatedDocumentWithoutTheWorkloadAuthority() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/documents/workload-uploads")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("workload.document.upload")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentDtos.WorkloadUploadRequest(UUID.randomUUID(), "PAYSLIP", "application/pdf", 2048L, "sha256-cross-actor"))))
+                .andExpect(status().isCreated()).andReturn();
+        DocumentDtos.Response created = objectMapper.readValue(result.getResponse().getContentAsString(), DocumentDtos.Response.class);
+
+        // A plain self-service uploader (not the owner, not the creating workload) cannot complete it.
+        when(employeeClient.resolveSelfEmployeeRef()).thenReturn(Optional.of(UUID.randomUUID()));
+        mockMvc.perform(post("/api/v1/documents/uploads/" + created.id() + "/complete")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("document.upload.self")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DocumentDtos.CompleteRequest("sha256-cross-actor"))))
+                .andExpect(status().isNotFound());
+    }
 }

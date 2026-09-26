@@ -37,6 +37,12 @@ class DocumentController {
         return service.complete(id, authentication, request, CurrentActor.resolve(), CurrentCorrelation.resolve());
     }
 
+    @PostMapping("/workload-uploads")
+    ResponseEntity<DocumentDtos.Response> uploadOnBehalf(@Valid @RequestBody DocumentDtos.WorkloadUploadRequest request) {
+        DocumentDtos.Response created = service.uploadOnBehalf(request, CurrentActor.resolve());
+        return ResponseEntity.created(URI.create("/api/v1/documents/" + created.id())).body(created);
+    }
+
     @GetMapping("/{id}")
     DocumentDtos.Response getById(@PathVariable UUID id, Authentication authentication) {
         return service.getById(id, authentication);

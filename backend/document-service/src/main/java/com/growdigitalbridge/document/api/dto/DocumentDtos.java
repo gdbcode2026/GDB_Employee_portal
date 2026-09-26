@@ -25,6 +25,19 @@ public final class DocumentDtos {
 
     public record CompleteRequest(@NotBlank @Size(max = 128) String checksum) { }
 
+    /**
+     * For {@code POST /documents/workload-uploads} only: an authorized backend workload (never
+     * a relayed employee token) supplies the target employee explicitly, since there is no
+     * caller "self" to resolve. Validated exactly like {@link UploadRequest} otherwise - no
+     * additional file-type allow-list or size limit is invented here either.
+     */
+    public record WorkloadUploadRequest(
+            @NotNull UUID ownerRef,
+            @Size(max = 200) String classification,
+            @NotBlank @Size(max = 100) String mimeType,
+            @NotNull @Positive Long sizeBytes,
+            @NotBlank @Size(max = 128) String checksum) { }
+
     public record VersionSummary(UUID id, int versionNumber, String objectKey, String checksum,
                                   String mimeType, long sizeBytes, ScanStatus scanStatus) { }
 

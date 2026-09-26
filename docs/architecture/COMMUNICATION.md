@@ -33,8 +33,21 @@ Every event has envelope fields `eventId UUID`, `eventType`, `eventVersion integ
 | `EXPENSE_SUBMITTED` | Expense | Workflow, Notification, Audit, Reporting* | claim/employee ID, currency, total |
 | `EXPENSE_APPROVED` | Expense | Notification, Audit, Reporting* | claim/employee ID, approved total/currency |
 | `PAYROLL_PROCESSED` | Payroll* | Notification, Audit, Reporting* | payroll run/period ID, employee count |
+| `PAYSLIP_GENERATED` | Payroll* | Notification, Audit, Reporting* | payslip/payroll run/employee ID |
 | `DOCUMENT_UPLOADED` | Document | Notification, Audit | document ID, owner ID O, classification, scan status |
 | `ASSET_ASSIGNED` | Asset | Notification, Audit, Reporting* | asset/assignment/employee IDs |
 | `WORKFLOW_COMPLETED` | Workflow | Leave, Attendance, Expense, Asset, Document, Notification, Audit | workflow ID, subject type/ID, outcome, decision time |
 
 `*` denotes a deferred consumer/service or a consumer only activated when its integration is approved.
+
+`PAYSLIP_GENERATED` is produced once per generated payslip (per-payslip granularity), distinct
+from the aggregate `PAYROLL_PROCESSED`, which it supplements rather than replaces — both remain
+documented events. It follows every rule already stated in this document: the envelope fields
+above (`eventId`, `eventType`, `eventVersion`, `occurredAt`, `correlationId`, `producer`,
+`aggregateId`) carry the identifier/versioning/audit-correlation metadata, so the "Minimum
+payload" column lists only the domain-specific references (`payslipId`, `payrollRunId`,
+`employeeRef`) — no new envelope field is introduced, and no amount, pay, or tax value is ever
+included, per this document's existing "never tokens or payroll values" rule. Producers write it
+via the same transactional outbox as every other event; consumers apply the same inbox/
+processed-event idempotency pattern. See `docs/PAYROLL_REQUIREMENTS.md` Section Q for the full
+specification and rationale.

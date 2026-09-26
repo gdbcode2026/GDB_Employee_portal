@@ -2,6 +2,7 @@ package com.growdigitalbridge.document.service;
 
 import com.growdigitalbridge.document.client.EmployeeClient;
 import com.growdigitalbridge.document.client.OrganizationClient;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.security.core.Authentication;
@@ -44,9 +45,18 @@ public class DocumentAccessGuard {
         return false;
     }
 
-    /** Only the uploader may complete their own upload, unless the caller holds the {@code document.manage} override. */
-    public boolean canComplete(Authentication authentication, UUID ownerRef) {
+    /**
+     * Only the uploader may complete their own upload, unless the caller holds the {@code
+     * document.manage} override, or the caller is the same authorized workload identity that
+     * created this document via {@code POST /documents/workload-uploads} (there is no "self" to
+     * resolve for a workload, so completion is instead authorized by comparing the acting
+     * identity to the document's own recorded creator).
+     */
+    public boolean canComplete(Authentication authentication, UUID ownerRef, String actor, String documentCreatedBy) {
         if (hasAuthority(authentication, "document.manage")) {
+            return true;
+        }
+        if (hasAuthority(authentication, "workload.document.upload") && Objects.equals(actor, documentCreatedBy)) {
             return true;
         }
         return resolveSelf(authentication).map(self -> self.equals(ownerRef)).orElse(false);
