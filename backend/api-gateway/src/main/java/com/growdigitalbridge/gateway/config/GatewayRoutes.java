@@ -6,4 +6,5 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record GatewayRoutes(String auditServiceUri, String notificationServiceUri, String organizationServiceUri,
                              String employeeServiceUri, String attendanceServiceUri, String leaveServiceUri,
                              String projectServiceUri, String performanceServiceUri, String documentServiceUri,
-                             String workflowServiceUri, String assetServiceUri, String expenseServiceUri) { }
+                             String workflowServiceUri, String assetServiceUri, String expenseServiceUri,
+                             String payrollServiceUri) { }

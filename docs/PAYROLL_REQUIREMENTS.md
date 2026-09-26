@@ -7,9 +7,17 @@ contradict, `docs/DEVELOPMENT_ROADMAP.md`, `docs/architecture/MICROSERVICES.md`,
 `docs/architecture/COMMUNICATION.md`, `docs/ARCHITECTURE_REVIEW.md`, `docs/DECISIONS.md`,
 `docs/workflows/WORKFLOWS.md`, and `docs/PAYROLL_REPORTING_DECISIONS.md`.
 
-No code, migration, or API has been created from this document. Payroll Service remains
-absent from the codebase and marked `(deferred)` in every existing architecture document until
-GDB formally approves the items in Section X.
+**Status: Phase 1 (Foundation) implemented; Phase 2 onward (calculation and every other
+sensitive business function) remains gated.** A `payroll-service` module now exists implementing
+only the technical scaffolding this document's Section Y calls "Foundation": `PayrollPeriod`/
+`PayrollRun` lifecycle (Section D), RBAC (`payroll.process`/`payroll.approve`/`payroll.read.all`),
+audit logging, and idempotency. It contains **no** salary/tax calculation, **no** seeded
+pay-component catalogue, **no** compensation amount, **no** payslip generation, and **no**
+Document Service integration. Every item in Section X remains PENDING_GDB_APPROVAL and
+unimplemented; nothing in Section X has been resolved or assumed by this code. Every other
+architecture document's "(deferred)" marking for Payroll now means specifically "calculation and
+sensitive business functionality deferred," not "no code exists" - see each document's own
+Payroll row for the precise split.
 
 ## Decisions locked by this document
 
@@ -82,6 +90,29 @@ tests passing, including dedicated workload-upload/quarantine/idempotency/author
 regression tests). This closes the one remaining engineering blocker Section X previously
 tracked for Payroll's own Phase 4 — see Section X for the current status. No Payroll Service
 code was written; this pass touched Document Service only, per its own explicit task scope.
+
+### Revision: Payroll Phase 1 (Foundation) implemented
+
+A `payroll-service` module now exists (see this document's own Status line above and Section Y).
+It implements exactly the "Foundation" phase Section Y describes: `PayrollPeriod` creation/
+retrieval (monthly periods only, decision 3), `PayrollRun` creation with an immutable
+active-employee snapshot (Section I) and the full Section D lifecycle (`DRAFT → CALCULATED →
+PENDING_APPROVAL → APPROVED → FINALIZED`, with `REJECTED` re-entering processing), the
+`payroll.process`/`payroll.approve` maker-checker split with self-approval prevention (Section
+J), audit logging of every transition (Section R), idempotent run creation/processing (Section
+T), and `PAYROLL_PROCESSED` emission on finalize (ID/period/employee-count only, no amount -
+Section Q). `EmployeeCompensation`/`CompensationComponent`/`PayComponent` tables exist as empty
+schema (no REST API - none is documented in Section O) so Phase 2's calculation pipeline has
+somewhere to read from once the catalogue is approved.
+
+**Nothing else changed.** No `PayrollRunLine`, no `Payslip`, no calculation, no pay-component
+catalogue row, no compensation amount, no proration formula, no tax/statutory logic, no
+Document Service integration, and no payslip endpoint were implemented. Every business decision
+in Section X remains exactly as PENDING_GDB_APPROVAL as before this revision - this pass resolved
+zero of them. The "Phase 1 cannot begin coding" caveat that previously closed Section Y is
+revised in Section Y below: it was about the pay-component *catalogue's content*, which Section F
+already fully specified the *shape* of independent of that content, so the technical foundation
+could be (and has been) built without it.
 
 ---
 
@@ -692,10 +723,18 @@ exist in code — none of this pass built any part of it.
 6. **Audit/security hardening** — Section R/S controls, verified before any real payroll data
    is processed.
 
-Phase 1 cannot begin coding until at minimum the pay component catalogue and statutory rule
-source (Section X) are approved, since even the "foundation" schema's `CompensationComponent`
-shape depends on knowing what a component can represent. Phase 4's former cross-service
-blocker is resolved: Document Service's workload-upload endpoint is now implemented and tested.
+**Revised finding:** the original wording above said Phase 1 could not begin coding at all until
+the pay-component catalogue and statutory rule source (Section X) were approved. That was too
+broad. Section F already fully specifies the *shape* `CompensationComponent`/`PayComponent` take
+(component code, type, amount, proration-policy code) independent of the catalogue's *content*
+(which specific components exist, at what rate). The technical foundation - schema, `PayrollPeriod`/
+`PayrollRun` lifecycle, RBAC, audit, idempotency - needs only that shape, not the content, and has
+therefore been implemented (see "Revision: Payroll Phase 1 (Foundation) implemented" above) with
+`pay_components` left empty and no amount/formula anywhere. **What genuinely still cannot begin**
+without Section X approval is any code that gives `CompensationComponent.amount` or
+`pay_components` a real value, or that computes a `PayrollRunLine`/`Payslip` from them - i.e.
+Phase 2 (calculation) onward. Phase 4's former cross-service blocker is separately resolved:
+Document Service's workload-upload endpoint is now implemented and tested.
 
 ## Z. Acceptance criteria
 

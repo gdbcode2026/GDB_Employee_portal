@@ -22,7 +22,7 @@ Deliver Project, Performance, Document/policies, Asset, Expense, secure uploads,
 
 ## Phase 5 — Sensitive finance and reporting
 
-Deliver Payroll/payslips only after finance requirements are approved. Build Reporting projections and controlled exports.
+Payroll Foundation implemented; payroll calculation and sensitive business functionality remain gated pending GDB approvals. The Phase 1 foundation (`docs/PAYROLL_REQUIREMENTS.md`) delivers `PayrollPeriod`/`PayrollRun` lifecycle scaffolding, RBAC (`payroll.process`/`payroll.approve`/`payroll.read.all`), audit logging, and idempotency - with no salary/tax calculation, no pay-component catalogue content, and no payslip generation. Deliver Payroll calculation, payslips, and any payment/provider integration only after finance requirements are approved. Build Reporting projections and controlled exports.
 
 ## Phase 6 — Production readiness
 

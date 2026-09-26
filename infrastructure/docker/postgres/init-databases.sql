@@ -22,3 +22,5 @@ CREATE USER gdb_asset WITH PASSWORD 'local-development-only';
 CREATE DATABASE asset_db OWNER gdb_asset;
 CREATE USER gdb_expense WITH PASSWORD 'local-development-only';
 CREATE DATABASE expense_db OWNER gdb_expense;
+CREATE USER gdb_payroll WITH PASSWORD 'local-development-only';
+CREATE DATABASE payroll_db OWNER gdb_payroll;
