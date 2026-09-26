@@ -1,7 +1,13 @@
-export function EmptyState({ message }: { message: string }) {
+import { Icon, type IconName } from "@/components/icons";
+
+export function EmptyState({ message, icon = "inbox" }: { message: string; icon?: IconName }) {
   return (
-    <p className="empty-state" role="status">
-      {message}
-    </p>
+    <div className="empty-panel" role="status">
+      <span className="stat-icon">
+        <Icon name={icon} size={20} />
+      </span>
+      <h3>Nothing here yet</h3>
+      <p className="muted">{message}</p>
+    </div>
   );
 }

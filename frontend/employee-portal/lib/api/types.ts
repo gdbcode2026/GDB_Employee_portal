@@ -99,3 +99,209 @@ export interface OrganizationDepartmentNode {
 export interface OrganizationChartResponse {
   departments: OrganizationDepartmentNode[];
 }
+
+// Mirrors backend/attendance-service response DTOs field for field.
+export type AttendanceStatus = "DRAFT" | "FINALIZED";
+export type RegularizationStatus = "SUBMITTED" | "APPROVED" | "REJECTED";
+export type ApprovalDecision = "APPROVED" | "REJECTED";
+
+export interface AttendanceRecord {
+  id: string;
+  employeeRef: string;
+  workDate: string;
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  status: AttendanceStatus;
+}
+
+export interface RegularizationRequest {
+  id: string;
+  employeeRef: string;
+  workDate: string;
+  requestedCheckInAt: string | null;
+  requestedCheckOutAt: string | null;
+  reason: string;
+  status: RegularizationStatus;
+  decidedBy: string | null;
+  decidedAt: string | null;
+}
+
+export interface RegularizationCreateRequest {
+  workDate: string;
+  requestedCheckInAt?: string;
+  requestedCheckOutAt?: string;
+  reason: string;
+}
+
+// Mirrors backend/leave-service response DTOs field for field.
+export type LeaveRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+
+export interface LeaveType {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface LeaveBalance {
+  id: string;
+  employeeRef: string;
+  leaveTypeId: string;
+  periodYear: number;
+  allocated: number;
+  used: number;
+  reserved: number;
+  available: number;
+}
+
+export interface LeaveRequest {
+  id: string;
+  employeeRef: string;
+  leaveTypeId: string;
+  startDate: string;
+  endDate: string;
+  units: number;
+  reason: string | null;
+  status: LeaveRequestStatus;
+  decidedBy: string | null;
+  decidedAt: string | null;
+}
+
+export interface LeaveRequestCreateRequest {
+  leaveTypeId: string;
+  startDate: string;
+  endDate: string;
+  reason?: string;
+}
+
+// Mirrors backend/expense-service response DTOs field for field.
+export type ExpenseClaimStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "REIMBURSED" | "CANCELLED";
+
+export interface ExpenseLineItem {
+  date: string;
+  category: string;
+  amount: number;
+  description: string | null;
+}
+
+export interface ExpenseReceiptRef {
+  documentRef: string;
+}
+
+export interface ExpenseClaim {
+  id: string;
+  employeeRef: string;
+  currency: string;
+  total: number;
+  status: ExpenseClaimStatus;
+  workflowRef: string | null;
+  lines: ExpenseLineItem[];
+  receipts: ExpenseReceiptRef[];
+  decidedBy: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExpenseClaimCreateRequest {
+  currency: string;
+  lines: ExpenseLineItem[];
+  receipts?: ExpenseReceiptRef[];
+}
+
+// Mirrors backend/asset-service response DTOs field for field.
+export type AssetStatus = "AVAILABLE" | "ASSIGNED" | "RETIRED";
+
+export interface Asset {
+  id: string;
+  tag: string;
+  type: string;
+  serial: string | null;
+  status: AssetStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Mirrors backend/performance-service response DTOs field for field.
+export type GoalStatus = "OPEN" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+
+export interface Goal {
+  id: string;
+  employeeRef: string;
+  title: string;
+  description: string | null;
+  target: string | null;
+  status: GoalStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ReviewStatus = "DRAFT" | "SUBMITTED";
+
+export interface PerformanceReview {
+  id: string;
+  cycleId: string;
+  employeeRef: string;
+  reviewerRef: string;
+  rating: string | null;
+  comments: string | null;
+  status: ReviewStatus;
+  submittedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Mirrors backend/workflow-service ApprovalTaskDtos field for field.
+export type ApprovalTaskStatus = "PENDING" | "DECIDED" | "CANCELLED";
+
+export interface ApprovalTask {
+  id: string;
+  instanceId: string;
+  sequenceNumber: number;
+  assigneeRef: string;
+  status: ApprovalTaskStatus;
+  decision: ApprovalDecision | null;
+  comment: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Mirrors backend/project-service response DTOs field for field.
+export type ProjectStatus = "ACTIVE" | "INACTIVE";
+export type ProjectTaskStatus = "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+export type TaskPriority = "LOW" | "MEDIUM" | "HIGH";
+
+export interface Project {
+  id: string;
+  code: string;
+  name: string;
+  ownerRef: string;
+  status: ProjectStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectTask {
+  id: string;
+  projectId: string;
+  assigneeRef: string | null;
+  title: string;
+  description: string | null;
+  status: ProjectTaskStatus;
+  priority: TaskPriority;
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Mirrors backend/document-service PolicyDtos field for field.
+export type PolicyStatus = "DRAFT" | "PUBLISHED";
+
+export interface Policy {
+  id: string;
+  documentId: string;
+  title: string;
+  status: PolicyStatus;
+  createdAt: string;
+  updatedAt: string;
+}

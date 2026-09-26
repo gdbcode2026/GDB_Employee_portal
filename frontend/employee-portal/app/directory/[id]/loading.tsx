@@ -1,5 +1,5 @@
-import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { PageSkeleton } from "@/components/Skeleton";
 
 export default function Loading() {
-  return <LoadingIndicator />;
+  return <PageSkeleton cards={2} />;
 }
