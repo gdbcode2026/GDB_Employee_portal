@@ -1,66 +1,90 @@
 package com.growdigitalbridge.payroll.service;
 
 import com.growdigitalbridge.payroll.api.dto.PayrollRunDtos;
+import com.growdigitalbridge.payroll.calculation.CalculationResult;
+import com.growdigitalbridge.payroll.calculation.PayrollCalculationEngine;
 import com.growdigitalbridge.payroll.client.EmployeeClient;
 import com.growdigitalbridge.payroll.domain.PayrollPeriod;
 import com.growdigitalbridge.payroll.domain.PayrollPeriodStatus;
 import com.growdigitalbridge.payroll.domain.PayrollRun;
 import com.growdigitalbridge.payroll.domain.PayrollRunStatus;
 import com.growdigitalbridge.payroll.domain.PayrollRunType;
+import com.growdigitalbridge.payroll.repository.PayrollExceptionRepository;
 import com.growdigitalbridge.payroll.repository.PayrollPeriodRepository;
+import com.growdigitalbridge.payroll.repository.PayrollRunLineRepository;
 import com.growdigitalbridge.payroll.repository.PayrollRunRepository;
+import com.growdigitalbridge.payroll.service.exception.CalculationFailedException;
 import com.growdigitalbridge.payroll.service.exception.ConflictException;
 import com.growdigitalbridge.payroll.service.exception.InvalidLifecycleTransitionException;
 import com.growdigitalbridge.payroll.service.exception.InvalidRequestException;
 import com.growdigitalbridge.payroll.service.exception.ResourceNotFoundException;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Owns {@link PayrollRun} creation and the Section D state machine's foundation-level
- * transitions. No calculation happens anywhere in this class - {@code process} advances DRAFT/
- * REJECTED straight to CALCULATED without producing a single {@code PayrollRunLine} (there is no
- * such entity yet; that is Phase 2, blocked on the pending pay-component catalogue). {@code
- * submitForApproval} then advances CALCULATED to PENDING_APPROVAL, so the full documented graph
- * (DRAFT -&gt; CALCULATED -&gt; PENDING_APPROVAL -&gt; APPROVED -&gt; FINALIZED, with PENDING_APPROVAL -&gt;
- * REJECTED re-entering processing) is faithfully implemented even though no endpoint in Section
- * O names "process"/"submit" explicitly - both are minimum additions required to make decision 7
- * reachable at all, exactly like Section O's own flagged "minimum necessary additions".
+ * Owns {@link PayrollRun} creation and the Section D state machine, including the Phase 2
+ * calculation lifecycle: DRAFT/REJECTED/CALCULATION_FAILED -&gt; PROCESSING -&gt; CALCULATED (or -&gt;
+ * CALCULATION_FAILED on error) -&gt; PENDING_APPROVAL -&gt; APPROVED -&gt; FINALIZED.
+ *
+ * <p>{@code process} is deliberately NOT itself {@code @Transactional}: it orchestrates three
+ * separate transactions so that (a) the PROCESSING status commits and is visible for the
+ * duration of calculation, (b) {@link PayrollCalculationEngine#calculate} runs in its own
+ * transaction that rolls back completely on any failure (no partial {@code PayrollRunLine}s -
+ * item 9), and (c) a calculation failure is still safely recorded as {@code CALCULATION_FAILED}
+ * in a transaction of its own, independent of (and after) that rollback. {@code
+ * TransactionTemplate} is used for (a)/(c) specifically so this still works correctly regardless
+ * of caller context, without relying on Spring proxy self-invocation across methods on this same
+ * bean.
  *
  * <p>Self-approval prevention (Section J): approve/reject/finalize all reject an attempt where
  * the acting identity equals the run's own {@code initiatedBy}, regardless of whether that
- * identity also holds {@code payroll.approve} - applied symmetrically to reject too, since
- * allowing a self-reject would let the same person route around the maker/checker split by a
- * different outcome.
+ * identity also holds {@code payroll.approve}.
  *
  * <p>Only {@code finalizeRun} produces a domain event: {@code payroll.processed.v1}
  * (PAYROLL_PROCESSED), with the exact payload Section Q already locks - run/period ID and
- * employee count, both known from the run's own snapshot without any calculation. {@code
- * payslip.generated.v1} is never produced here; it requires the {@code Payslip} entity, which
- * does not exist until Phase 4.
+ * employee count. {@code payslip.generated.v1} is never produced here; it requires the {@code
+ * Payslip} entity, which does not exist until Phase 4.
  */
 @Service
 public class PayrollRunService {
 
+    private static final Set<PayrollRunStatus> REPROCESSABLE =
+            EnumSet.of(PayrollRunStatus.DRAFT, PayrollRunStatus.REJECTED, PayrollRunStatus.CALCULATION_FAILED);
+
     private final PayrollRunRepository repository;
     private final PayrollPeriodRepository periodRepository;
+    private final PayrollRunLineRepository lineRepository;
+    private final PayrollExceptionRepository exceptionRepository;
     private final EmployeeClient employeeClient;
+    private final PayrollCalculationEngine calculationEngine;
     private final OutboxEventWriter outboxEventWriter;
     private final PayrollAuditLog auditLog;
+    private final TransactionTemplate transactionTemplate;
 
     public PayrollRunService(PayrollRunRepository repository, PayrollPeriodRepository periodRepository,
-                              EmployeeClient employeeClient, OutboxEventWriter outboxEventWriter, PayrollAuditLog auditLog) {
+                              PayrollRunLineRepository lineRepository, PayrollExceptionRepository exceptionRepository,
+                              EmployeeClient employeeClient, PayrollCalculationEngine calculationEngine,
+                              OutboxEventWriter outboxEventWriter, PayrollAuditLog auditLog,
+                              PlatformTransactionManager transactionManager) {
         this.repository = repository;
         this.periodRepository = periodRepository;
+        this.lineRepository = lineRepository;
+        this.exceptionRepository = exceptionRepository;
         this.employeeClient = employeeClient;
+        this.calculationEngine = calculationEngine;
         this.outboxEventWriter = outboxEventWriter;
         this.auditLog = auditLog;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @Transactional
@@ -94,15 +118,38 @@ public class PayrollRunService {
         return com.growdigitalbridge.payroll.api.dto.PageResponse.of(page.map(this::toResponse));
     }
 
-    @Transactional
+    /**
+     * Orchestrates DRAFT/REJECTED/CALCULATION_FAILED -&gt; PROCESSING -&gt; CALCULATED, or -&gt;
+     * CALCULATION_FAILED on error. See the class Javadoc for why this method itself is not
+     * {@code @Transactional}.
+     */
     public PayrollRunDtos.Response process(UUID id, String actor, UUID correlationId) {
-        PayrollRun run = find(id);
-        if (run.getStatus() != PayrollRunStatus.DRAFT && run.getStatus() != PayrollRunStatus.REJECTED) {
-            throw new InvalidLifecycleTransitionException("Payroll run " + id + " cannot be processed from status " + run.getStatus() + ".");
+        PayrollRunStatus currentStatus = find(id).getStatus();
+        if (!REPROCESSABLE.contains(currentStatus)) {
+            throw new InvalidLifecycleTransitionException("Payroll run " + id + " cannot be processed from status " + currentStatus + ".");
         }
-        run.process(actor, Instant.now());
-        auditLog.runProcessed(run.getId(), actor, correlationId);
-        return toResponse(run);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            PayrollRun run = find(id);
+            run.startProcessing(actor, Instant.now());
+            repository.save(run);
+        });
+        auditLog.processingStarted(id, actor, correlationId);
+
+        try {
+            CalculationResult result = calculationEngine.calculate(id, actor, correlationId);
+            auditLog.calculationCompleted(id, actor, correlationId, result.lineCount(), result.exceptionCount());
+        } catch (RuntimeException e) {
+            transactionTemplate.executeWithoutResult(status -> {
+                PayrollRun run = find(id);
+                run.markCalculationFailed(actor, Instant.now());
+                repository.save(run);
+            });
+            auditLog.calculationFailed(id, actor, correlationId, e.getClass().getSimpleName(), e.getMessage());
+            throw new CalculationFailedException("Payroll run " + id + " calculation failed and was not finalized; see audit log.");
+        }
+
+        return toResponse(find(id));
     }
 
     @Transactional
@@ -175,8 +222,11 @@ public class PayrollRunService {
     }
 
     private PayrollRunDtos.Response toResponse(PayrollRun run) {
+        long lineCount = lineRepository.countByRunId(run.getId());
+        long exceptionCount = exceptionRepository.countByRunId(run.getId());
         return new PayrollRunDtos.Response(run.getId(), run.getPeriodId(), run.getRunType(), run.getCorrectsRunId(),
-                run.getStatus(), run.getEmployeeSnapshot().size(), run.getInitiatedBy(), run.getApprovedBy(),
-                run.getApprovedAt(), run.getFinalizedAt(), run.getCreatedAt(), run.getUpdatedAt());
+                run.getStatus(), run.getEmployeeSnapshot().size(), (int) lineCount, (int) exceptionCount,
+                run.getInitiatedBy(), run.getApprovedBy(), run.getApprovedAt(), run.getFinalizedAt(),
+                run.getCreatedAt(), run.getUpdatedAt());
     }
 }

@@ -13,6 +13,6 @@ public final class PayrollRunDtos {
     public record CreateRequest(@NotNull UUID periodId) { }
 
     public record Response(UUID id, UUID periodId, PayrollRunType runType, UUID correctsRunId, PayrollRunStatus status,
-                            int employeeCount, String initiatedBy, String approvedBy, Instant approvedAt,
-                            Instant finalizedAt, Instant createdAt, Instant updatedAt) { }
+                            int employeeCount, int lineCount, int exceptionCount, String initiatedBy, String approvedBy,
+                            Instant approvedAt, Instant finalizedAt, Instant createdAt, Instant updatedAt) { }
 }

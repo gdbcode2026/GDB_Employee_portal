@@ -30,8 +30,24 @@ public class PayrollAuditLog {
         record("run.created", runId, actor, correlationId, null);
     }
 
-    public void runProcessed(UUID runId, String actor, UUID correlationId) {
-        record("run.processed", runId, actor, correlationId, null);
+    public void processingStarted(UUID runId, String actor, UUID correlationId) {
+        record("run.processing_started", runId, actor, correlationId, null);
+    }
+
+    public void calculationCompleted(UUID runId, String actor, UUID correlationId, int lineCount, int exceptionCount) {
+        record("run.calculation_completed", runId, actor, correlationId,
+                "lineCount=" + lineCount + " exceptionCount=" + exceptionCount);
+    }
+
+    /** {@code failureType}/{@code failureMessage} are the failing exception's class name and message only - safe metadata, never a payroll value. */
+    public void calculationFailed(UUID runId, String actor, UUID correlationId, String failureType, String failureMessage) {
+        log.warn("action=run.calculation_failed runId={} actor={} correlationId={} failureType={} failureMessage={}",
+                runId, actor, correlationId, failureType, failureMessage);
+    }
+
+    public void payrollException(UUID runId, UUID employeeRef, String reasonCode, String actor, UUID correlationId) {
+        log.info("action=run.payroll_exception runId={} employeeRef={} reason={} actor={} correlationId={}",
+                runId, employeeRef, reasonCode, actor, correlationId);
     }
 
     public void runSubmittedForApproval(UUID runId, String actor, UUID correlationId) {

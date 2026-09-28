@@ -1,5 +1,6 @@
 package com.growdigitalbridge.payroll.api;
 
+import com.growdigitalbridge.payroll.service.exception.CalculationFailedException;
 import com.growdigitalbridge.payroll.service.exception.ConflictException;
 import com.growdigitalbridge.payroll.service.exception.InvalidLifecycleTransitionException;
 import com.growdigitalbridge.payroll.service.exception.InvalidRequestException;
@@ -17,6 +18,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 /** Maps every failure to an RFC 9457 {@link ProblemDetail}; never leaks a stack trace or entity. */
 @RestControllerAdvice
 class ApiExceptionHandler {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
@@ -58,8 +61,15 @@ class ApiExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
     }
 
+    /** The run's CALCULATION_FAILED status is already safely recorded before this is thrown - see PayrollRunService. */
+    @ExceptionHandler(CalculationFailedException.class)
+    ProblemDetail handleCalculationFailed(CalculationFailedException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
-    ProblemDetail handleUnexpected() {
+    ProblemDetail handleUnexpected(Exception ex) {
+        log.error("Unexpected error", ex);
         return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred.");
     }
 }

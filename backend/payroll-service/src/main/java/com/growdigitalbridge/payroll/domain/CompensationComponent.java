@@ -12,12 +12,15 @@ import java.util.UUID;
 
 /**
  * A single earning/deduction/employer-contribution line attached to an {@link
- * EmployeeCompensation} (PAYROLL_REQUIREMENTS.md Section E/F). {@code componentCode} is a
- * free-form reference to the pending {@code PayComponent} catalogue - no catalogue content is
- * seeded or assumed. {@code amount} is a fixed value only; no formula/calculation-type column is
- * added, since this task explicitly forbids implementing deduction/tax formulas.
- * {@code prorationPolicyCode} is an opaque, unresolved identifier (Section H's technical model
- * only) - no policy implementation is registered or invoked in this Phase 1 foundation.
+ * EmployeeCompensation} (PAYROLL_REQUIREMENTS.md Section E/F). {@code componentCode} identifies
+ * a row in the "Common India Payroll V1 Baseline" {@code PayComponent} catalogue (product
+ * baseline component types only - never a GDB-specific rate or eligibility rule).
+ * {@code calculationStrategyCode} and {@code prorationPolicyCode} are opaque, named strategy
+ * identifiers (Section H's configurable-policy technical model, extended by Phase 2's
+ * {@code com.growdigitalbridge.payroll.calculation} package): the calculation engine looks each
+ * one up in a registry and falls back to a safe, no-formula default
+ * ({@code FixedAmountStrategy}/{@code NoOpProrationPolicy}) when unset. Neither field stores a
+ * rate, threshold, or formula itself - only which pluggable strategy implementation applies.
  * {@code amount} is sensitive per decision 14 - never log this field's value.
  */
 @Entity
@@ -43,6 +46,9 @@ public class CompensationComponent {
     @Column(name = "proration_policy_code", length = 64)
     private String prorationPolicyCode;
 
+    @Column(name = "calculation_strategy_code", length = 64)
+    private String calculationStrategyCode;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -53,12 +59,19 @@ public class CompensationComponent {
 
     public CompensationComponent(UUID id, UUID compensationId, String componentCode, CompensationComponentType componentType,
                                   BigDecimal amount, String prorationPolicyCode, String actor, Instant now) {
+        this(id, compensationId, componentCode, componentType, amount, prorationPolicyCode, null, actor, now);
+    }
+
+    public CompensationComponent(UUID id, UUID compensationId, String componentCode, CompensationComponentType componentType,
+                                  BigDecimal amount, String prorationPolicyCode, String calculationStrategyCode,
+                                  String actor, Instant now) {
         this.id = id;
         this.compensationId = compensationId;
         this.componentCode = componentCode;
         this.componentType = componentType;
         this.amount = amount;
         this.prorationPolicyCode = prorationPolicyCode;
+        this.calculationStrategyCode = calculationStrategyCode;
         this.createdAt = now;
         this.createdBy = actor;
     }
@@ -69,5 +82,6 @@ public class CompensationComponent {
     public CompensationComponentType getComponentType() { return componentType; }
     public BigDecimal getAmount() { return amount; }
     public String getProrationPolicyCode() { return prorationPolicyCode; }
+    public String getCalculationStrategyCode() { return calculationStrategyCode; }
     public Instant getCreatedAt() { return createdAt; }
 }

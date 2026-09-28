@@ -9,9 +9,18 @@ import com.growdigitalbridge.payroll.domain.CompensationComponentType;
 import com.growdigitalbridge.payroll.domain.EmployeeCompensation;
 import com.growdigitalbridge.payroll.domain.PayFrequency;
 import com.growdigitalbridge.payroll.domain.OutboxEvent;
+import com.growdigitalbridge.payroll.domain.PayrollAttendanceInput;
+import com.growdigitalbridge.payroll.domain.PayrollException;
+import com.growdigitalbridge.payroll.domain.PayrollExceptionReason;
+import com.growdigitalbridge.payroll.domain.PayrollLeaveInput;
+import com.growdigitalbridge.payroll.domain.PayrollRunLine;
 import com.growdigitalbridge.payroll.repository.CompensationComponentRepository;
 import com.growdigitalbridge.payroll.repository.EmployeeCompensationRepository;
 import com.growdigitalbridge.payroll.repository.OutboxEventRepository;
+import com.growdigitalbridge.payroll.repository.PayrollAttendanceInputRepository;
+import com.growdigitalbridge.payroll.repository.PayrollExceptionRepository;
+import com.growdigitalbridge.payroll.repository.PayrollLeaveInputRepository;
+import com.growdigitalbridge.payroll.repository.PayrollRunLineRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -31,6 +40,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -56,6 +66,10 @@ class PayrollIntegrationTest {
     @ServiceConnection
     static PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
+    @Container
+    @ServiceConnection
+    static RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:4.1-management-alpine");
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -70,6 +84,18 @@ class PayrollIntegrationTest {
 
     @Autowired
     private CompensationComponentRepository compensationComponentRepository;
+
+    @Autowired
+    private PayrollRunLineRepository lineRepository;
+
+    @Autowired
+    private PayrollExceptionRepository exceptionRepository;
+
+    @Autowired
+    private PayrollAttendanceInputRepository attendanceInputRepository;
+
+    @Autowired
+    private PayrollLeaveInputRepository leaveInputRepository;
 
     @MockitoBean
     private EmployeeClient employeeClient;
@@ -318,5 +344,140 @@ class PayrollIntegrationTest {
         assertThat(compensationRepository.findEffectiveForEmployee(employeeRef, LocalDate.of(2023, 1, 1)))
                 .isEmpty();
         assertThat(compensationComponentRepository.findByCompensationId(current.getId())).hasSize(1);
+    }
+
+    /** TEST DATA — synthetic amounts only, never real salary/tax figures. */
+    private EmployeeCompensation demoCompensation(UUID employeeRef, LocalDate effectiveFrom) {
+        EmployeeCompensation compensation = new EmployeeCompensation(UUID.randomUUID(), employeeRef, "INR",
+                PayFrequency.MONTHLY, effectiveFrom, null, "hr-1", Instant.now());
+        compensationRepository.save(compensation);
+        compensationComponentRepository.save(new CompensationComponent(UUID.randomUUID(), compensation.getId(), "BASIC_SALARY",
+                CompensationComponentType.EARNING, new BigDecimal("50000.00"), null, "hr-1", Instant.now()));
+        compensationComponentRepository.save(new CompensationComponent(UUID.randomUUID(), compensation.getId(), "HRA",
+                CompensationComponentType.EARNING, new BigDecimal("20000.00"), null, "hr-1", Instant.now()));
+        compensationComponentRepository.save(new CompensationComponent(UUID.randomUUID(), compensation.getId(), "PF",
+                CompensationComponentType.DEDUCTION, new BigDecimal("6000.00"), null, "hr-1", Instant.now()));
+        compensationComponentRepository.save(new CompensationComponent(UUID.randomUUID(), compensation.getId(), "EMPLOYER_PF",
+                CompensationComponentType.EMPLOYER_CONTRIBUTION, new BigDecimal("6000.00"), null, "hr-1", Instant.now()));
+        return compensation;
+    }
+
+    @Test
+    void earningsDeductionsAndEmployerContributionsAreAggregatedIntoALine() throws Exception {
+        int year = Year.now().getValue() + 2;
+        UUID employeeRef = UUID.randomUUID();
+        demoCompensation(employeeRef, LocalDate.of(year, 1, 1));
+        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+
+        UUID periodId = createPeriod(year, 1);
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("payroll.process"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CALCULATED"))
+                .andExpect(jsonPath("$.lineCount").value(1))
+                .andExpect(jsonPath("$.exceptionCount").value(0));
+
+        List<PayrollRunLine> lines = lineRepository.findByRunId(run.id());
+        assertThat(lines).hasSize(1);
+        PayrollRunLine line = lines.get(0);
+        assertThat(line.getGrossPay()).isEqualByComparingTo("70000.00");
+        assertThat(line.getTotalDeductions()).isEqualByComparingTo("6000.00");
+        assertThat(line.getTotalEmployerContributions()).isEqualByComparingTo("6000.00");
+        assertThat(line.getNetPay()).isEqualByComparingTo("64000.00");
+        assertThat(line.getComponentBreakdown()).contains("BASIC_SALARY", "HRA", "PF", "EMPLOYER_PF");
+    }
+
+    @Test
+    void missingCompensationProducesAPayrollExceptionWithoutBlockingTheRun() throws Exception {
+        int year = Year.now().getValue() + 2;
+        UUID employeeWithCompensation = UUID.randomUUID();
+        UUID employeeWithoutCompensation = UUID.randomUUID();
+        demoCompensation(employeeWithCompensation, LocalDate.of(year, 2, 1));
+        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeWithCompensation, employeeWithoutCompensation));
+
+        UUID periodId = createPeriod(year, 2);
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("payroll.process"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CALCULATED"))
+                .andExpect(jsonPath("$.lineCount").value(1))
+                .andExpect(jsonPath("$.exceptionCount").value(1));
+
+        List<PayrollException> exceptions = exceptionRepository.findByRunId(run.id());
+        assertThat(exceptions).hasSize(1);
+        assertThat(exceptions.get(0).getEmployeeRef()).isEqualTo(employeeWithoutCompensation);
+        assertThat(exceptions.get(0).getReason()).isEqualTo(PayrollExceptionReason.NO_EFFECTIVE_COMPENSATION);
+    }
+
+    @Test
+    void noOpProrationLeavesEarningsUnchangedRegardlessOfAttendanceOrLeaveInput() throws Exception {
+        int year = Year.now().getValue() + 2;
+        UUID employeeRef = UUID.randomUUID();
+        LocalDate periodStart = LocalDate.of(year, 3, 1);
+        demoCompensation(employeeRef, periodStart);
+        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+
+        // Real attendance/leave input snapshots, exactly as the messaging listeners would persist them.
+        attendanceInputRepository.save(new PayrollAttendanceInput(UUID.randomUUID(), employeeRef, periodStart,
+                UUID.randomUUID(), UUID.randomUUID(), Instant.now()));
+        leaveInputRepository.save(new PayrollLeaveInput(UUID.randomUUID(), employeeRef, UUID.randomUUID(),
+                new BigDecimal("3"), UUID.randomUUID(), Instant.now()));
+
+        UUID periodId = createPeriod(year, 3);
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("payroll.process"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CALCULATED"));
+
+        PayrollRunLine line = lineRepository.findByRunId(run.id()).get(0);
+        assertThat(line.getGrossPay()).isEqualByComparingTo("70000.00");
+        List<Map<String, Object>> breakdown = objectMapper.readValue(line.getComponentBreakdown(),
+                new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() { });
+        assertThat(breakdown).allSatisfy(entry -> assertThat(((Number) entry.get("prorationAdjustment")).intValue()).isZero());
+    }
+
+    @Test
+    void calculationFailureRollsBackAndSafelyRecordsTheFailureThenAllowsReprocessing() throws Exception {
+        int year = Year.now().getValue() + 2;
+        UUID employeeRef = UUID.randomUUID();
+        LocalDate periodStart = LocalDate.of(year, 4, 1);
+
+        // Two overlapping effective compensation records for the same employee/date is an
+        // ambiguous, invalid data state the resolver cannot handle - a genuine engine failure,
+        // not a mocked one, that must roll back completely.
+        EmployeeCompensation first = demoCompensation(employeeRef, periodStart);
+        EmployeeCompensation second = demoCompensation(employeeRef, periodStart);
+        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+
+        UUID periodId = createPeriod(year, 4);
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("payroll.process"))))
+                .andExpect(status().is5xxServerError());
+
+        MvcResult afterFailure = mockMvc.perform(get("/api/v1/payroll/runs/" + run.id())
+                        .with(jwt().authorities(new SimpleGrantedAuthority("payroll.read.all"))))
+                .andExpect(status().isOk()).andReturn();
+        PayrollRunDtos.Response reread = objectMapper.readValue(afterFailure.getResponse().getContentAsString(), PayrollRunDtos.Response.class);
+        assertThat(reread.status().name()).isEqualTo("CALCULATION_FAILED");
+        assertThat(lineRepository.findByRunId(run.id())).isEmpty();
+
+        // Fix the ambiguous data, then prove the failed run can be reprocessed cleanly.
+        compensationComponentRepository.deleteAll(compensationComponentRepository.findByCompensationId(second.getId()));
+        compensationRepository.deleteById(second.getId());
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("payroll.process"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CALCULATED"))
+                .andExpect(jsonPath("$.lineCount").value(1));
+        assertThat(lineRepository.findByRunId(run.id())).hasSize(1);
     }
 }
