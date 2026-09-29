@@ -23,3 +23,12 @@ logging.structured.format.console: logstash
 gdb.clients.organization-service.base-url: ${GDB_ORGANIZATION_SERVICE_URI:http://localhost:8083}
 gdb.clients.employee-service.base-url: ${GDB_EMPLOYEE_SERVICE_URI:http://localhost:8084}
 gdb.messaging.outbox-relay.fixed-delay-ms: ${OUTBOX_RELAY_FIXED_DELAY_MS:5000}
+gdb.storage:
+  endpoint: ${GDB_STORAGE_ENDPOINT:http://localhost:9000}
+  region: ${GDB_STORAGE_REGION:us-east-1}
+  access-key: ${GDB_STORAGE_ACCESS_KEY:gdb_local}
+  secret-key: ${GDB_STORAGE_SECRET_KEY:local-development-only}
+  bucket: ${GDB_STORAGE_BUCKET:gdb-documents}
+  key-prefix: ${GDB_STORAGE_KEY_PREFIX:}
+  connection-timeout: ${GDB_STORAGE_CONNECTION_TIMEOUT:PT5S}
+  download-url-expiry: ${GDB_STORAGE_DOWNLOAD_URL_EXPIRY:PT5M}

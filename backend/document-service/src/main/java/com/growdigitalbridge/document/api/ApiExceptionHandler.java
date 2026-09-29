@@ -2,6 +2,7 @@ package com.growdigitalbridge.document.api;
 
 import com.growdigitalbridge.document.service.exception.ConflictException;
 import com.growdigitalbridge.document.service.exception.InvalidLifecycleTransitionException;
+import com.growdigitalbridge.document.service.exception.InvalidRequestException;
 import com.growdigitalbridge.document.service.exception.ResourceNotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -54,6 +55,11 @@ class ApiExceptionHandler {
 
     @ExceptionHandler(InvalidLifecycleTransitionException.class)
     ProblemDetail handleInvalidTransition(InvalidLifecycleTransitionException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+    }
+
+    @ExceptionHandler(InvalidRequestException.class)
+    ProblemDetail handleInvalidRequest(InvalidRequestException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
     }
 

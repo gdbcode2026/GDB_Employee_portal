@@ -16,9 +16,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -53,6 +56,14 @@ class DocumentIntegrationTest {
     @Container
     @ServiceConnection
     static RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:4.1-management-alpine");
+
+    @Container
+    static GenericContainer<?> S3_MOCK = TestObjectStorage.container();
+
+    @DynamicPropertySource
+    static void storageProperties(DynamicPropertyRegistry registry) {
+        TestObjectStorage.registerProperties(registry, S3_MOCK);
+    }
 
     @Autowired
     private MockMvc mockMvc;

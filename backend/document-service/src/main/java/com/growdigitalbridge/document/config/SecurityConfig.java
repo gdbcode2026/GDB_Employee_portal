@@ -70,6 +70,8 @@ public class SecurityConfig {
                 .exceptionHandling(handling -> handling.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/documents/uploads/*/content")
+                        .hasAnyAuthority("document.upload.self", "document.manage", "workload.document.upload")
                         .requestMatchers(HttpMethod.POST, "/api/v1/documents/uploads/*/complete")
                         .hasAnyAuthority("document.upload.self", "document.manage", "workload.document.upload")
                         .requestMatchers(HttpMethod.POST, "/api/v1/documents/uploads").hasAuthority("document.upload.self")

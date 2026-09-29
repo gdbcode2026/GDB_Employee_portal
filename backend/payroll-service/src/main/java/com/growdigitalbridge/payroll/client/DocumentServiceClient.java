@@ -14,7 +14,8 @@ import org.springframework.web.client.RestClient;
  * (PAYROLL_REQUIREMENTS.md Section N/U). Two distinct authentication modes, matching exactly
  * which identity is available at each call site:
  *
- * <p><b>Workload-authenticated</b> ({@link #createWorkloadUpload}/{@link #completeUpload}) - used
+ * <p><b>Workload-authenticated</b> ({@link #createWorkloadUpload}/{@link #uploadContent}/{@link
+ * #completeUpload}) - used
  * by {@code PayslipGenerationService}, a background step with no live caller. Authenticates as
  * the {@code payroll-service} workload via {@link WorkloadTokenProvider}'s OAuth2
  * client-credentials token, never a relayed employee token - this is exactly the gap Section N
@@ -47,6 +48,23 @@ public class DocumentServiceClient {
                 .body(new WorkloadUploadRequest(ownerRef, classification, mimeType, sizeBytes, checksum))
                 .retrieve()
                 .body(UploadResponse.class);
+    }
+
+    /**
+     * Uploads the actual generated PDF bytes to Document Service's real, storage-backed content
+     * endpoint - the step that makes {@code checksum}/{@code sizeBytes} declared at {@link
+     * #createWorkloadUpload} verifiable against real stored bytes rather than only against each
+     * other. Must be called after {@code createWorkloadUpload} and before {@link #completeUpload}.
+     */
+    public void uploadContent(UUID documentId, byte[] content, String mimeType) {
+        String token = workloadTokenProvider.fetchToken();
+        restClient.put()
+                .uri("/api/v1/documents/uploads/{id}/content", documentId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.parseMediaType(mimeType))
+                .body(content)
+                .retrieve()
+                .toBodilessEntity();
     }
 
     public void completeUpload(UUID documentId, String checksum) {

@@ -108,6 +108,7 @@ public class PayslipGenerationService {
 
         DocumentServiceClient.UploadResponse upload = documentServiceClient.createWorkloadUpload(
                 line.getEmployeeRef(), CLASSIFICATION, MIME_TYPE, pdfBytes.length, checksum);
+        documentServiceClient.uploadContent(upload.id(), pdfBytes, MIME_TYPE);
         documentServiceClient.completeUpload(upload.id(), checksum);
 
         UUID payslipId = UUID.randomUUID();

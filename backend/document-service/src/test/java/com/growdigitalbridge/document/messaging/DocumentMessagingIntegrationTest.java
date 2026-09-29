@@ -2,6 +2,7 @@ package com.growdigitalbridge.document.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.growdigitalbridge.document.api.dto.DocumentDtos;
+import com.growdigitalbridge.document.TestObjectStorage;
 import com.growdigitalbridge.document.client.EmployeeClient;
 import com.growdigitalbridge.document.client.OrganizationClient;
 import com.growdigitalbridge.document.repository.ProcessedEventRepository;
@@ -27,6 +28,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -57,9 +59,13 @@ class DocumentMessagingIntegrationTest {
     @ServiceConnection
     static RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:4.1-management-alpine");
 
+    @Container
+    static GenericContainer<?> S3_MOCK = TestObjectStorage.container();
+
     @DynamicPropertySource
     static void fastRelay(DynamicPropertyRegistry registry) {
         registry.add("gdb.messaging.outbox-relay.fixed-delay-ms", () -> "300");
+        TestObjectStorage.registerProperties(registry, S3_MOCK);
     }
 
     @Autowired private MockMvc mockMvc;

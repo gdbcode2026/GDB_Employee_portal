@@ -45,9 +45,11 @@ public final class DocumentDtos {
                             VersionSummary latestVersion, Instant createdAt, Instant updatedAt) { }
 
     /**
-     * Deliberately carries no download URL: no object storage provider is integrated (none is
-     * decided per docs/ARCHITECTURE_REVIEW.md item 3), so this proves the documented "access
-     * check, scan status" authorization gate without fabricating a working download link.
+     * {@code downloadUrl} is a short-lived, pre-signed GET URL into private object storage
+     * (SECURITY.md: "expiring signed access") - never a permanent or public object URL. It is
+     * {@code null} only if the storage provider could not be reached to sign one; every other
+     * field still reflects the real, storage-backed object.
      */
-    public record DownloadResponse(UUID documentId, String objectKey, String checksum, String mimeType, long sizeBytes) { }
+    public record DownloadResponse(UUID documentId, String objectKey, String checksum, String mimeType, long sizeBytes,
+                                    String downloadUrl, Instant downloadUrlExpiresAt) { }
 }

@@ -7,12 +7,15 @@ import com.growdigitalbridge.document.service.DocumentService;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.UUID;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -30,6 +33,13 @@ class DocumentController {
     ResponseEntity<DocumentDtos.Response> upload(Authentication authentication, @Valid @RequestBody DocumentDtos.UploadRequest request) {
         DocumentDtos.Response created = service.upload(authentication, request, CurrentActor.resolve());
         return ResponseEntity.created(URI.create("/api/v1/documents/" + created.id())).body(created);
+    }
+
+    @PutMapping("/uploads/{id}/content")
+    DocumentDtos.Response uploadContent(@PathVariable UUID id, Authentication authentication,
+                                        @RequestHeader(value = HttpHeaders.CONTENT_TYPE, required = false) String contentType,
+                                        @RequestBody byte[] content) {
+        return service.uploadContent(id, authentication, content, contentType, CurrentActor.resolve());
     }
 
     @PostMapping("/uploads/{id}/complete")

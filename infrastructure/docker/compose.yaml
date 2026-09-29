@@ -35,5 +35,23 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    environment:
+      MINIO_ROOT_USER: gdb_local
+      MINIO_ROOT_PASSWORD: local-development-only
+    # Private by default: MinIO grants no anonymous/public access to a bucket unless a policy is
+    # explicitly applied, and nothing here ever applies one. The console (9090) is for local
+    # operator visibility only - bound to loopback, like every other service's ports below.
+    command: ["server", "/data", "--console-address", ":9090"]
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9090:9090"]
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 volumes:
   postgres-data:
+  minio-data:

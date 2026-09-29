@@ -11,9 +11,11 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * {@code objectKey} is a server-generated opaque reference only - no object storage provider
- * is integrated (none is decided per docs/ARCHITECTURE_REVIEW.md item 3), so it identifies
- * where a future storage integration would resolve the bytes, not an actual stored file.
+ * {@code objectKey} is the real key under which this version's bytes are stored in private
+ * S3-compatible object storage (see {@code com.growdigitalbridge.document.storage}) - never a
+ * database-stored binary (MICROSERVICES.md: "No binary files in database"). Which commercial
+ * provider GDB ultimately runs in production is still undecided (docs/ARCHITECTURE_REVIEW.md
+ * item 3); the storage mechanism itself is real and provider-agnostic.
  */
 @Entity
 @Table(name = "document_versions")
