@@ -22,7 +22,7 @@ Deliver Project, Performance, Document/policies, Asset, Expense, secure uploads,
 
 ## Phase 5 — Sensitive finance and reporting
 
-Payroll Foundation implemented; payroll calculation and sensitive business functionality remain gated pending GDB approvals. The Phase 1 foundation (`docs/PAYROLL_REQUIREMENTS.md`) delivers `PayrollPeriod`/`PayrollRun` lifecycle scaffolding, RBAC (`payroll.process`/`payroll.approve`/`payroll.read.all`), audit logging, and idempotency - with no salary/tax calculation, no pay-component catalogue content, and no payslip generation. Deliver Payroll calculation, payslips, and any payment/provider integration only after finance requirements are approved. Build Reporting projections and controlled exports.
+Payroll Foundation and Calculation Core implemented; real payroll calculation content and every sensitive business function remain gated pending GDB approvals. Phases 1–2 (`docs/PAYROLL_REQUIREMENTS.md`) deliver `PayrollPeriod`/`PayrollRun` lifecycle scaffolding (including `PROCESSING`/`CALCULATION_FAILED`), RBAC (`payroll.process`/`payroll.approve`/`payroll.read.all`), audit logging, idempotency, effective-dated compensation resolution, configurable (no-formula) calculation strategies, configurable (no-op) proration, `PayrollRunLine` results, `PayrollException` records for missing compensation, and consumption of finalized-attendance/approved-leave events into Payroll's own input snapshots - with no real salary/tax/statutory formula, no pay-component catalogue content, and no payslip generation anywhere. Deliver real payroll calculation values, payslips, and any payment/provider integration only after finance requirements are approved. Build Reporting projections and controlled exports.
 
 ## Phase 6 — Production readiness
 

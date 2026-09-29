@@ -2,7 +2,7 @@
 
 ## Risks
 
-- Prematurely implementing all sixteen services increases operational and delivery cost. Begin with the foundation and employee/organization core; keep Payroll calculation/sensitive business functionality and Reporting deferred. (Payroll's own technical foundation - period/run lifecycle scaffolding only, no calculation - is now implemented per `docs/PAYROLL_REQUIREMENTS.md`; this does not change the business-approval gate below.)
+- Prematurely implementing all sixteen services increases operational and delivery cost. Begin with the foundation and employee/organization core; keep Payroll's real business calculation/content and Reporting deferred. (Payroll's technical foundation and calculation *pipeline* - period/run lifecycle, configuration-driven calculation strategies, proration, and attendance/leave input consumption, all with no real rate/formula - are now implemented per `docs/PAYROLL_REQUIREMENTS.md`; this does not change the business-approval gate below.)
 - Cross-domain manager authorization depends on timely, correct Organization relationships. Scope changes, delegation, and employee transfers require contract and cache-invalidation testing.
 - Eventual consistency means projections, notifications, and workflows can lag. User interfaces must display authoritative source state and clear pending status.
 - File storage, malware scanning, OIDC provider, payroll jurisdiction/provider, retention, and public-site edge routing are external dependencies not yet selected.
@@ -31,6 +31,6 @@ Without schema/API/event governance, separate services will drift; contract test
 3. Build Employee and Organization with frontend portal shell, directory, profile, and resource authorization.
 4. Build Workflow, Leave, Attendance/WFH/regularization, notifications, and associated audit/event tests.
 5. Build Document/Asset/Expense, then Project/Performance after detailed product rules.
-6. Payroll's technical foundation (period/run lifecycle scaffolding, RBAC, audit, idempotency) is implemented; implement Payroll calculation, payslips, payment/provider integration, and Reporting only after finance/reporting requirements and sensitive-data controls are approved.
+6. Payroll's technical foundation and calculation core (period/run lifecycle including `PROCESSING`/`CALCULATION_FAILED`, RBAC, audit, idempotency, effective-dated compensation resolution, configurable no-formula calculation/proration strategies, `PayrollRunLine`/`PayrollException` results, attendance/leave event consumption) are implemented; implement real payroll calculation content, payslips, payment/provider integration, and Reporting only after finance/reporting requirements and sensitive-data controls are approved.
 7. Complete production readiness: operational runbooks, restore drills, load/security testing, staging route integration and rollback rehearsal.
 

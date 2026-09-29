@@ -7,17 +7,25 @@ contradict, `docs/DEVELOPMENT_ROADMAP.md`, `docs/architecture/MICROSERVICES.md`,
 `docs/architecture/COMMUNICATION.md`, `docs/ARCHITECTURE_REVIEW.md`, `docs/DECISIONS.md`,
 `docs/workflows/WORKFLOWS.md`, and `docs/PAYROLL_REPORTING_DECISIONS.md`.
 
-**Status: Phase 1 (Foundation) implemented; Phase 2 onward (calculation and every other
-sensitive business function) remains gated.** A `payroll-service` module now exists implementing
-only the technical scaffolding this document's Section Y calls "Foundation": `PayrollPeriod`/
-`PayrollRun` lifecycle (Section D), RBAC (`payroll.process`/`payroll.approve`/`payroll.read.all`),
-audit logging, and idempotency. It contains **no** salary/tax calculation, **no** seeded
-pay-component catalogue, **no** compensation amount, **no** payslip generation, and **no**
-Document Service integration. Every item in Section X remains PENDING_GDB_APPROVAL and
-unimplemented; nothing in Section X has been resolved or assumed by this code. Every other
-architecture document's "(deferred)" marking for Payroll now means specifically "calculation and
-sensitive business functionality deferred," not "no code exists" - see each document's own
-Payroll row for the precise split.
+**Status: Phase 1 (Foundation) and Phase 2 (Calculation Core) are implemented; Phase 3 onward
+(approval/finalization endpoints beyond the technical maker-checker gate, payslip generation, and
+every other sensitive business function) remains gated on GDB approval of the items in Section X.**
+A `payroll-service` module implements `PayrollPeriod`/`PayrollRun` lifecycle (Section D, now
+including `PROCESSING`/`CALCULATION_FAILED`), RBAC (`payroll.process`/`payroll.approve`/
+`payroll.read.all`), audit logging, idempotency, **and** a real calculation pipeline: effective-dated
+compensation resolution, configurable calculation strategies for earnings/deductions/employer
+contributions (Section H), configurable (no-op) proration, consumption of `attendance.finalized.v1`/
+`leave.approved.v1` into Payroll's own input snapshots (Section I), `PayrollRunLine` results, and
+`PayrollException` records for employees with no effective compensation (Section E/F). **No
+statutory rate, tax slab, threshold, eligibility rule, seeded pay-component catalogue row, or
+GDB-specific salary policy is implemented anywhere** - every calculation strategy registered today
+resolves to a fixed, already-configured amount or a zero adjustment; no formula exists in code.
+Every item in Section X remains PENDING_GDB_APPROVAL and unresolved by this code, including the
+no-compensation-employee handling question (block vs. skip), which is technically surfaced as a
+`PayrollException` without resolving the underlying business question. Every other architecture
+document's "(deferred)" marking for Payroll now means specifically "calculation *content* and
+sensitive business functionality deferred," not "no code exists" - see each document's own Payroll
+row for the precise split.
 
 ## Decisions locked by this document
 
@@ -46,6 +54,43 @@ Items not in this list (salary structure, pay component catalogue, deductions, b
 statutory rules, TDS configuration, provider, exact HR/Finance authority split, retention
 period, exact reporting requirements) are explicitly **PENDING_GDB_APPROVAL** — see Section X.
 No value or rule for these was invented anywhere in this document.
+
+## Common India Payroll V1 Baseline
+
+**This is a provisional, configurable product-design baseline — not GDB-specific legal or
+statutory policy.** It names and consolidates the thirteen structural patterns already locked
+above/below into a single reference label ("the Baseline") that later phases and documents can
+cite by name instead of re-deriving from the decision list. "V1" signals this is one versioned,
+swappable baseline (a future baseline could target a different jurisdiction, currency, or
+compliance model) — no V2 is designed or implied here, and adopting V1 commits to nothing beyond
+it. Establishing this label **resolves zero Section X items**: every statutory rate, tax slab,
+threshold, eligibility rule, and GDB-specific salary policy remains exactly as
+PENDING_GDB_APPROVAL as before. The Baseline governs shape/structure only, never a value.
+
+| # | Baseline element | Locked as | Defined in |
+|---|---|---|---|
+| 1 | Monthly payroll | Decision 3 — no other frequency is supported or coded | Section D |
+| 2 | INR | Decision 2 — the only currency `EmployeeCompensation.currency` accepts | Section F/G |
+| 3 | Structured salary components | `CompensationComponent`/`PayComponent` with a fixed type vocabulary (`EARNING`/`DEDUCTION`/`EMPLOYER_CONTRIBUTION`); `component_code` and every rate/amount are configurable data, never a hard-coded component | Section E/F/G |
+| 4 | Configurable statutory deductions | Statutory deductions are ordinary `DEDUCTION`-type components identified by a free-form `component_code` — no deduction name, rate, slab, or eligibility rule is hard-coded anywhere; the actual statutory catalogue is PENDING_GDB_APPROVAL | Section F/G, Section X |
+| 5 | Attendance/approved leave inputs | Decision 6 — only `FINALIZED` attendance and `APPROVED` leave are ever read | Section I |
+| 6 | Configurable LOP/proration | The pluggable `ProrationPolicy` identifier, defaulting to a no-op (full pay) until a real formula is supplied — no per-day/LOP formula is hard-coded | Section H |
+| 7 | Effective-dated salary revisions | Decision 4 — `EmployeeCompensation.effective_from/effective_to`; a revision is a new row, never an in-place edit | Section G |
+| 8 | Maker-checker approval | Decisions 7 — distinct `payroll.process`/`payroll.approve` permissions plus service-layer self-approval prevention | Section J |
+| 9 | Immutable finalization | Decision 8 — no code path updates a `FINALIZED` run | Section D |
+| 10 | Adjustment runs | Decision 9 — corrections are a new `PayrollRun` with `run_type = ADJUSTMENT`, never an edit to the original | Section K |
+| 11 | Detailed employee payslip | Decisions 11–12 — full field list (branding, earnings/deductions/employer contributions, gross/net, amount in words, YTD, tax field, PDF, secure download, history) | Section L/M |
+| 12 | Document Service storage | Decision 13 — `Payslip.document_ref` only, no payroll-owned object storage | Section N/U |
+| 13 | Employee self-only payslip access | Decision 10 — no team-scoped payslip tier exists | Section B/S |
+
+**Explicitly excluded from the Baseline** (restated, not newly decided — see Section X for the
+authoritative pending list): statutory rates, tax slabs, thresholds and eligibility (PF/ESI/PT/
+TDS or any other), the actual pay-component catalogue, benefits, the real proration/LOP formula,
+adjustment/netting accounting treatment, the HR/Finance authority split, retention periods, the
+payment/disbursement provider, and exact reporting requirements. None of these gates is loosened,
+removed, or assumed by naming the Baseline; each remains PENDING_GDB_APPROVAL until GDB/Finance/
+Legal supplies it, and calculation itself (Phase 2 onward, Section Y) remains gated regardless of
+this Baseline existing.
 
 ### Revision: technical gap resolution pass
 
@@ -114,6 +159,66 @@ revised in Section Y below: it was about the pay-component *catalogue's content*
 already fully specified the *shape* of independent of that content, so the technical foundation
 could be (and has been) built without it.
 
+### Revision: Common India Payroll V1 Baseline established
+
+Added the "Common India Payroll V1 Baseline" section above, naming and consolidating the
+thirteen structural patterns the sixteen locked decisions and Sections D–U already define
+(monthly periods, INR, structured salary components, configurable statutory deductions,
+attendance/leave inputs, configurable LOP/proration, effective-dated revisions, maker-checker
+approval, immutable finalization, adjustment runs, detailed payslip, Document Service storage,
+self-only payslip access) into a single citable label for later phases to reference. This is a
+naming/organizing pass only: it locks no new decision, resolves no Section X item, and hard-codes
+no statutory rate, tax slab, threshold, eligibility rule, or GDB-specific salary policy. The
+Baseline is explicitly framed as a provisional, versioned, configurable product default — not
+GDB legal policy - and calculation remains exactly as gated as before this revision.
+
+### Revision: Payroll Phase 2 (Calculation Core) implemented
+
+Payroll's real calculation pipeline (Section H) is now implemented against the Common India
+Payroll V1 Baseline, entirely configuration-driven and with **zero statutory rate, tax slab,
+threshold, eligibility rule, or GDB-specific salary policy anywhere in code**:
+
+- **Effective-dated compensation resolution** (Section G) - `CompensationResolver` selects the
+  `EmployeeCompensation` covering the period's start date; historical records are never
+  overwritten.
+- **Configurable calculation strategies** (Section H) - `ComponentCalculationStrategy`, with
+  `StatutoryCalculator`/`TaxCalculator` as distinct marker extension points for statutory/tax
+  components specifically, resolved per component via a new `calculation_strategy_code` column
+  (Section F). Only one strategy is registered (`FixedAmountStrategy` - returns the component's
+  own configured amount unchanged); no formula exists.
+- **Configurable (no-op) proration** (Section H) - the pluggable `ProrationPolicy` design from
+  the technical-gap-resolution revision is now implemented; `NoOpProrationPolicy` is the only
+  registered policy.
+- **`PayrollRunLine` results** (Section E/F) - one immutable row per employee per run: gross pay,
+  total deductions, total employer contributions (a new aggregate column, added because Section M
+  requires employer contributions as a payslip field), net pay, and a structured JSON breakdown.
+- **`PayrollException` records** (Section E/F, new entity) - an employee with no effective
+  compensation for the period gets an exception row instead of a line; the run still reaches
+  `CALCULATED`. The underlying business question (block the run vs. silently skip) remains
+  exactly as unresolved in Section X as before - this only makes the *symptom* visible and
+  auditable.
+- **Attendance/leave event consumption** (Section I) - `attendance.finalized.v1`/
+  `leave.approved.v1` are now actually consumed (queue/DLX/DLQ + inbox pattern) into
+  `PayrollAttendanceInput`/`PayrollLeaveInput` snapshots (Section F, new entities).
+- **New lifecycle states** (Section D) - `PROCESSING` (separately committed, visible for the
+  duration of calculation) and `CALCULATION_FAILED` (a failed attempt is safely recorded, never
+  silently lost, and is reprocessable exactly like DRAFT/REJECTED) were added to the state
+  machine. This is a technical addition beyond the original design, made necessary by
+  implementing real calculation; it changes no business decision.
+- **Idempotency** (Section T) - reprocessing deletes and recreates lines/exceptions rather than
+  accumulating them, backed by a `(run_id, employee_ref)` uniqueness constraint on both tables.
+- **Calculation failure/rollback** - an unhandled error during calculation rolls back every write
+  from that attempt (no partial `PayrollRunLine`), and the run is marked `CALCULATION_FAILED` in
+  a separate, already-committed transaction so the failure itself is never lost.
+
+**Nothing else changed.** No `Payslip`, no PDF, no Document Service integration from Payroll, no
+real tax/statutory/deduction formula, no seeded catalogue *content* (only catalogue *names*, per
+the Baseline), no payment/disbursement provider, and no Reporting integration were implemented.
+Every item in Section X remains exactly as PENDING_GDB_APPROVAL as before this revision, including
+the no-effective-compensation business question, the real proration/LOP formula, and the
+adjustment/netting accounting policy - this revision resolves none of them, only their *technical*
+surfacing (exceptions, pluggable policy points).
+
 ---
 
 ## A. Payroll scope
@@ -158,23 +263,37 @@ split between them for specific actions like approval versus finalization.
 
 No PayrollRun state machine exists in any current document (`DATABASE.md`'s Payroll row is the
 only entity row in the entire platform with no enumerated states). This section defines one,
-consistent with decisions 7–9:
+consistent with decisions 7–9. **Implemented** (Section Y Phase 2), with one addition beyond the
+original design - an explicit, separately-committed `PROCESSING` state and a `CALCULATION_FAILED`
+state so a calculation attempt is never silently lost:
 
 ```
-DRAFT → CALCULATED → PENDING_APPROVAL → APPROVED → FINALIZED
+DRAFT → PROCESSING → CALCULATED → PENDING_APPROVAL → APPROVED → FINALIZED
+                 \→ CALCULATION_FAILED (reprocessable, same as DRAFT/REJECTED)
                                       \→ REJECTED (returns to DRAFT for correction and re-calculation)
-DRAFT/CALCULATED/PENDING_APPROVAL → CANCELLED (before finalization only)
+DRAFT/CALCULATED/PENDING_APPROVAL → CANCELLED (before finalization only, not yet implemented - no endpoint exists)
 ```
 
-- **DRAFT** — run created for a period; no calculation performed yet.
-- **CALCULATED** — per-employee earnings/deductions computed from compensation + attendance/leave
-  inputs; nothing is visible to employees yet.
-- **PENDING_APPROVAL** — submitted for the approval decision required by decision 7.
-- **APPROVED** — decision recorded; run may now be finalized.
+- **DRAFT** — run created for a period; no calculation performed yet. **Implemented.**
+- **PROCESSING** — calculation in progress; committed in its own transaction so it is visible for
+  the duration of the run. **Implemented** (new state, added during Phase 2 - see Revision below).
+- **CALCULATED** — per-employee earnings/deductions/employer-contributions computed from
+  compensation + attendance/leave inputs via the configurable strategies in Section H; nothing is
+  visible to employees yet. **Implemented** - using only fixed, pre-configured amounts and a
+  no-op proration adjustment; no formula.
+- **CALCULATION_FAILED** — the calculation attempt raised an unhandled error; no partial
+  `PayrollRunLine`/`PayrollException` rows are left behind (the attempt's own transaction rolls
+  back completely), and the run can be reprocessed exactly like DRAFT/REJECTED. **Implemented**
+  (new state, added during Phase 2).
+- **PENDING_APPROVAL** — submitted for the approval decision required by decision 7. **Implemented**
+  (technical transition only; still gated on the business questions in Section X for who may act).
+- **APPROVED** — decision recorded; run may now be finalized. **Implemented.**
 - **FINALIZED** — terminal, immutable per decision 8. Payslips are generated and become visible
-  to employees only at this point.
-- **REJECTED** — sent back for correction; a rejected run never reaches FINALIZED.
-- **CANCELLED** — abandoned before finalization; no payslips are ever generated.
+  to employees only at this point. **Transition implemented; payslip generation itself is not
+  (Phase 4).**
+- **REJECTED** — sent back for correction; a rejected run never reaches FINALIZED. **Implemented.**
+- **CANCELLED** — abandoned before finalization; no payslips are ever generated. **Not
+  implemented** - modeled in the status enum for schema completeness only; no endpoint reaches it.
 
 A **FINALIZED** run's PayrollRun row and its per-employee results are never updated in place —
 enforced at the service layer (no update path exists once `status = FINALIZED`) and reinforced
@@ -188,13 +307,16 @@ entities decisions 4–9 require to be actionable:
 
 | Entity | Purpose | Status |
 |---|---|---|
-| `PayrollPeriod` | One calendar month (decision 3): year, month, start/end dates, cut-off date, status | Extends documented entity — fields newly specified here |
-| `EmployeeCompensation` | Effective-dated compensation record per employee (decision 4): employee ref, currency (INR), effective-from/to, status | New — required by decision 4 |
-| `CompensationComponent` | A single component (earning/deduction/employer-contribution) attached to an `EmployeeCompensation`, referencing the pending `PayComponent` catalogue | New — required by decision 4; catalogue contents PENDING |
-| `PayComponent` | Catalogue master (code, name, type) | Documented in `DATABASE.md`; catalogue contents PENDING |
-| `PayrollRun` | One run for one period: run type (REGULAR/ADJUSTMENT), corrects-run reference, status (Section D), initiated/approved/finalized actors and timestamps | Extends documented entity |
-| `PayrollRunLine` | Per-employee calculated result within a run: earnings/deductions breakdown, gross pay, total deductions, net pay | New — required to support Section L/M payslip content |
-| `Payslip` | One finalized, generated payslip per employee per run: employee ref, run ref, period ref, document ref, generated timestamp | Extends documented entity |
+| `PayrollPeriod` | One calendar month (decision 3): year, month, start/end dates, cut-off date, status | **Implemented** (Phase 1) |
+| `EmployeeCompensation` | Effective-dated compensation record per employee (decision 4): employee ref, currency (INR), effective-from/to, status | **Implemented** (Phase 1 schema; Phase 2 resolution logic) - no amount value seeded anywhere |
+| `CompensationComponent` | A single component (earning/deduction/employer-contribution) attached to an `EmployeeCompensation`, referencing the `PayComponent` catalogue, plus a `calculation_strategy_code`/`proration_policy_code` identifying which registered strategy applies | **Implemented**; catalogue *content* (real rates/amounts) remains PENDING |
+| `PayComponent` | Catalogue master (code, name, type) | **Implemented** - seeded with the Common India Payroll V1 Baseline's generic component names/types only (Basic Salary, HRA, Other Allowance, Bonus, Overtime, Other Earning, PF, ESI, Professional Tax, TDS, Loan/Advance, Other Deduction, Employer PF, Employer ESI); no rate, amount, or eligibility rule |
+| `PayrollRun` | One run for one period: run type (REGULAR/ADJUSTMENT), corrects-run reference, status (Section D), initiated/approved/finalized actors and timestamps | **Implemented** |
+| `PayrollRunLine` | Per-employee calculated result within a run: earnings/deductions/employer-contributions breakdown (structured JSON), gross pay, total deductions, total employer contributions, net pay | **Implemented** (Phase 2) - immutable once written; a reprocess deletes and recreates rows rather than mutating them |
+| `PayrollException` | Recorded instead of a line for an employee with no effective compensation for the period (reason code, employee ref) | **Implemented** (Phase 2) - new entity, not in the original specification; the underlying business question (block vs. silently skip the run) remains PENDING (Section X) |
+| `PayrollAttendanceInput` | Payroll's own snapshot of one `attendance.finalized.v1` event (employee ref, work date, attendance ref) | **Implemented** (Phase 2) - new entity |
+| `PayrollLeaveInput` | Payroll's own snapshot of one `leave.approved.v1` event (employee ref, leave request ref, approved units) | **Implemented** (Phase 2) - new entity; Leave's event carries no date range, so this snapshot is not period-filtered (a data-availability gap, not an invented assumption) |
+| `Payslip` | One finalized, generated payslip per employee per run: employee ref, run ref, period ref, document ref, generated timestamp | **Not implemented** (Phase 4) |
 
 ## F. Database tables and important fields
 
@@ -206,23 +328,40 @@ cross-service references, `*_id` for local foreign keys):
 - **employee_compensations**: `id`, `employee_ref`, `currency` (fixed `INR` initially, decision 2),
   `effective_from`, `effective_to` (nullable = still active), `status`.
 - **compensation_components**: `id`, `compensation_id FK`, `component_code`, `component_type`
-  (`EARNING`/`DEDUCTION`/`EMPLOYER_CONTRIBUTION`), `amount` or `calculation_type` (fixed vs.
-  formula-driven — formula source PENDING per Section X), `proration_policy_code` (nullable;
+  (`EARNING`/`DEDUCTION`/`EMPLOYER_CONTRIBUTION`), `amount` (fixed value only — no formula/
+  `calculation_type` column exists; **Implemented**), `proration_policy_code` (nullable;
   identifies the configurable proration policy for attendance/leave-sensitive components,
-  Section H — no formula is stored here, only a policy identifier).
-- **pay_components**: `id`, `code`, `name`, `type`. Row contents (the actual catalogue) PENDING.
+  Section H — no formula is stored here, only a policy identifier; **Implemented**),
+  `calculation_strategy_code` (nullable; identifies the configurable calculation strategy for
+  the component's amount, same pattern; **Implemented**, added during Phase 2).
+- **pay_components**: `id`, `code`, `name`, `type`. **Implemented** — seeded with the Common
+  India Payroll V1 Baseline's generic component names/types only (Section "Common India Payroll
+  V1 Baseline" above); no rate, amount, or eligibility rule. The *actual* GDB catalogue (which of
+  these are used, at what amount) remains PENDING_GDB_APPROVAL.
 - **payroll_runs**: `id`, `period_id FK`, `run_type` (`REGULAR`/`ADJUSTMENT`), `corrects_run_id`
-  (nullable, self-referencing FK, populated only for `ADJUSTMENT` runs), `status`,
-  `initiated_by`, `approved_by`, `approved_at`, `finalized_at`.
+  (nullable, self-referencing FK, populated only for `ADJUSTMENT` runs), `status` (now including
+  `PROCESSING`/`CALCULATION_FAILED`, Section D), `initiated_by`, `approved_by`, `approved_at`,
+  `finalized_at`. **Implemented.**
 - **payroll_run_lines**: `id`, `run_id FK`, `employee_ref`, `gross_pay decimal(14,2)`,
-  `total_deductions decimal(14,2)`, `net_pay decimal(14,2)`, breakdown stored as structured
+  `total_deductions decimal(14,2)`, `total_employer_contributions decimal(14,2)` (added during
+  Phase 2 - Section M lists employer contributions as a required payslip field, so this is
+  aggregated alongside gross/deductions), `net_pay decimal(14,2)`, breakdown stored as structured
   JSON referencing `compensation_components` at calculation time (for reproducibility). No
   positivity constraint is applied to any amount column — adjustment-run lines may be negative
-  (Section K).
+  (Section K). **Implemented** (Phase 2); unique per `(run_id, employee_ref)`.
+- **payroll_exceptions** (new, Phase 2, not in the original specification): `id`, `run_id FK`,
+  `employee_ref`, `reason` (`NO_EFFECTIVE_COMPENSATION` is the only value defined so far),
+  `detected_at`. Unique per `(run_id, employee_ref)`. **Implemented.**
+- **payroll_attendance_inputs** (new, Phase 2): `id`, `employee_ref`, `work_date`,
+  `attendance_ref`, `source_event_id`, `received_at`. Unique per `(employee_ref, work_date)`.
+  **Implemented.**
+- **payroll_leave_inputs** (new, Phase 2): `id`, `employee_ref`, `leave_request_ref`,
+  `approved_units`, `source_event_id`, `received_at`. Unique per `leave_request_ref`.
+  **Implemented.**
 - **payslips**: `id`, `employee_ref`, `run_id FK`, `period_id FK`, `document_ref`,
-  `generated_at`.
+  `generated_at`. **Not implemented** (Phase 4).
 - **outbox_events** / **processed_events**: identical shape to every other service in this
-  platform (transactional outbox; inbox for the two consumed events in Section Q).
+  platform (transactional outbox; inbox for the two consumed events in Section Q). **Implemented.**
 
 No cross-service foreign keys are introduced; `employee_ref`, `document_ref` remain opaque
 `*_ref` values per the platform-wide convention.
@@ -246,20 +385,37 @@ PENDING_GDB_APPROVAL (Section X); no value is assumed.
 
 ## H. Payroll calculation architecture
 
-Per decision 5, calculation happens inside Payroll Service, not an external provider. The
+**Implemented** (Section Y Phase 2), as a configuration-driven pipeline with no statutory/tax
+formula anywhere - see `com.growdigitalbridge.payroll.calculation` for the actual code. Per
+decision 5, calculation happens inside Payroll Service, not an external provider. The
 calculation pipeline for a `PayrollRun`:
 
-1. Resolve the `PayrollPeriod` being processed.
-2. Resolve the set of employees included in the run (Section I).
+1. Resolve the `PayrollPeriod` being processed. **Implemented.**
+2. Resolve the set of employees included in the run (Section I). **Implemented** (Phase 1 snapshot).
 3. For each included employee, resolve the `EmployeeCompensation` effective for that period.
+   **Implemented** (`CompensationResolver`); an employee with none produces a `PayrollException`
+   instead (Section E/X), never a blocked run.
 4. Incorporate attendance/leave inputs (Section I) through a **configurable proration policy**
    (below) to determine any pay adjustment (e.g. for unpaid leave or loss-of-pay days).
-5. Apply each `CompensationComponent` (earnings, deductions, employer contributions) per the
-   pending catalogue and pending deduction/statutory rules.
-6. Compute `gross_pay`, `total_deductions`, `net_pay` per employee, persisted as a
-   `PayrollRunLine`.
+   **Implemented** as a registry lookup; the only registered policy is the no-op default below.
+5. Apply each `CompensationComponent` (earnings, deductions, employer contributions) through a
+   **configurable calculation strategy** (`ComponentCalculationStrategy`, with `StatutoryCalculator`/
+   `TaxCalculator` as distinct, separately-registrable extension points for statutory/tax-coded
+   components specifically). **Implemented**; the only registered strategy
+   (`FixedAmountStrategy`) returns the component's own configured amount unchanged - the pending
+   catalogue content and pending deduction/statutory rules (Section X) are not implemented.
+6. Compute `gross_pay`, `total_deductions`, `total_employer_contributions`, `net_pay` per
+   employee, persisted as an immutable `PayrollRunLine` (structured JSON breakdown). **Implemented.**
 7. On finalization only (Section J), generate one `Payslip` + PDF per `PayrollRunLine`, and
-   publish `payslip.generated.v1` per payslip (Section Q).
+   publish `payslip.generated.v1` per payslip (Section Q). **Not implemented** (Phase 4) - `PAYROLL_PROCESSED`
+   (aggregate, no amounts) is emitted on finalize (Phase 1), but no payslip/PDF exists yet.
+
+Reprocessing (before `FINALIZED`) is idempotent: existing lines/exceptions for the run are
+deleted and recreated, never duplicated, enforced by a database uniqueness constraint on
+`(run_id, employee_ref)` for both tables. A genuine calculation failure (e.g. corrupted/ambiguous
+compensation data) rolls back every write from that attempt - no partial `PayrollRunLine` is ever
+left behind - and the run is safely marked `CALCULATION_FAILED` (Section D) in a separate,
+already-committed step, from which it can be reprocessed like any other reprocessable state.
 
 ### Configurable proration policy (technical model only)
 
@@ -267,19 +423,19 @@ The calculation pipeline must not hard-code any unpaid-leave/loss-of-pay formula
 implemented as a pluggable **proration policy** the run resolves per compensation component,
 not a fixed calculation baked into the pipeline:
 
-- A `ProrationPolicy` is a named, versioned strategy identifier (e.g. stored as a
-  `proration_policy_code` on `CompensationComponent` or on `PayrollPeriod`, exact placement is
-  an implementation detail) that the calculation pipeline looks up and invokes for
-  attendance/leave-sensitive components. It receives the employee's resolved compensation, the
-  relevant `AttendanceRecord`/`LeaveRequest` inputs for the period, and the period's calendar
-  bounds, and returns an adjustment amount.
+- A `ProrationPolicy` is a named, versioned strategy identifier, stored as `proration_policy_code`
+  on `CompensationComponent`, that the calculation pipeline looks up (via `ProrationPolicyRegistry`)
+  and invokes for `EARNING`-type components. It receives the employee's resolved compensation, the
+  relevant `PayrollAttendanceInput`/`PayrollLeaveInput` snapshot rows for the employee, and the
+  period's calendar bounds, and returns an adjustment amount. **Implemented.**
 - **Default policy**: until GDB supplies a real formula, the only non-invented default is a
   **no-op policy** — full compensation is paid regardless of attendance/leave state. This is
   the sole default this document specifies, because paying full compensation is the absence of
   a rule, not the assertion of one; any other default (e.g. per-day deduction) would be
   inventing the exact business formula the task requires this document not to invent.
   <br>An actual formula (e.g. `unpaid_days × (monthly_rate / days_in_period)`) may only be
-  configured once GDB Finance/Legal supplies it — see Section X.
+  configured once GDB Finance/Legal supplies it — see Section X. **`NoOpProrationPolicy` is
+  implemented and is the only registered policy; no other policy exists in code.**
 - The policy identifier is data-driven configuration, not a code branch per employee, so a real
   formula can be introduced later without changing `PayrollRun`/`PayrollRunLine`'s schema or
   the calculation pipeline's control flow — only the resolved policy implementation changes.
@@ -293,7 +449,7 @@ still pending, and scoped to payment execution, not calculation).
 
 ## I. Attendance/Leave input model
 
-Per decision 6, a payroll run's inputs are:
+**Implemented** (Section Y Phase 2). Per decision 6, a payroll run's inputs are:
 - **Finalized attendance** — Attendance Service's `AttendanceRecord` in status `FINALIZED` only;
   non-finalized records must never be read.
 - **Approved leave** — Leave Service's `LeaveRequest` in status `APPROVED` only.
@@ -306,7 +462,12 @@ deferred (`Payroll*`) consumers in `COMMUNICATION.md`'s event table. This resolv
 explicit APIs") in favor of the pattern every other consuming service in this platform already
 uses, and requires no new business decision — it is a technical integration choice, not a
 statutory or compensation rule. Both consumers use the same inbox/`ProcessedEvent` idempotency
-pattern already established by Document, Asset, and Workflow Service.
+pattern already established by Document, Asset, and Workflow Service, persisting only the exact
+fields each event carries into `PayrollAttendanceInput`/`PayrollLeaveInput` (Section F) - never a
+fetch back to Attendance/Leave Service. Attendance's event is additionally re-checked for
+`status = FINALIZED` before being persisted (defense in depth); Leave's event carries no status
+field at all since `leave.approved.v1` is only ever published on approval, and it carries no
+date range, so leave inputs are not yet filterable to a specific payroll period.
 
 ### Employee scope for a run (technical ambiguity resolved in this revision)
 
@@ -697,8 +858,9 @@ Carried forward from `docs/PAYROLL_REPORTING_DECISIONS.md`, restated as
   N/U). **Done.**
 
 No further cross-document or cross-service prerequisite blocks Payroll's own implementation
-phases (Section Y) beyond the business decisions above. Payroll Service itself still does not
-exist in code — none of this pass built any part of it.
+phases (Section Y) beyond the business decisions above. Payroll Service Phase 1 (Foundation) is
+implemented. Payroll calculation and remaining sensitive business functionality are still gated
+pending GDB approvals.
 
 ## Y. Implementation phases
 
@@ -706,8 +868,11 @@ exist in code — none of this pass built any part of it.
    `CompensationComponent`/`PayComponent` schema and CRUD needed only for internal setup (no
    catalogue content — that's pending).
 2. **Calculation core** — `PayrollRun`/`PayrollRunLine` lifecycle (Section D), attendance/leave
-   event consumption (Section I), calculation pipeline (Section H) — usable only once the
-   pending proration formula and pay component catalogue are supplied.
+   event consumption (Section I), calculation pipeline (Section H). **Implemented** (see
+   "Revision: Payroll Phase 2 (Calculation Core) implemented" above) at the *technical* level -
+   configuration-driven, no formula. Producing a *real* payroll number still requires the pending
+   proration formula and pay component catalogue *content* to be supplied (Section X); this phase
+   does not wait for that to exist in code, only for those values to become meaningful.
 3. **Approval/finalization** — Section J/K endpoints and state transitions, including the
    `payroll.approve` permission and self-approval prevention. The `RBAC.md` addition is now in
    place (Section X); this phase is otherwise unblocked at the documentation level.
@@ -732,9 +897,19 @@ broad. Section F already fully specifies the *shape* `CompensationComponent`/`Pa
 therefore been implemented (see "Revision: Payroll Phase 1 (Foundation) implemented" above) with
 `pay_components` left empty and no amount/formula anywhere. **What genuinely still cannot begin**
 without Section X approval is any code that gives `CompensationComponent.amount` or
-`pay_components` a real value, or that computes a `PayrollRunLine`/`Payslip` from them - i.e.
-Phase 2 (calculation) onward. Phase 4's former cross-service blocker is separately resolved:
-Document Service's workload-upload endpoint is now implemented and tested.
+`pay_components` a real value, or that computes a *real* `PayrollRunLine`/`Payslip` from them.
+Phase 4's former cross-service blocker is separately resolved: Document Service's
+workload-upload endpoint is now implemented and tested.
+
+**Second revised finding (Phase 2):** the same reasoning extends one phase further than
+originally thought. Phase 2's calculation *pipeline* - the code paths, strategy interfaces, and
+lifecycle transitions - needed only the *shape* Section H already specified, not real
+rates/formulas, and has therefore been implemented with every strategy resolving to a fixed,
+pre-configured, non-statutory amount (Section H Revision). What genuinely still cannot happen is
+any run producing a *meaningful* payroll number for a real employee - that still requires
+Section X's pay-component catalogue content, statutory rates, and proration formula. Phase 3
+(approval/finalization) is technically unblocked in the same sense: its permission/state-machine
+mechanics are already implemented (Section D/J), pending only the same business content.
 
 ## Z. Acceptance criteria
 
@@ -766,14 +941,30 @@ values):
   (Section J).
 - The calculation pipeline's proration step is invoked through a named, swappable policy
   identifier, and the default (no-op) policy produces zero adjustment regardless of
-  attendance/leave input — verified by a test asserting full pay under the default policy and a
-  configuration-swap test asserting a different registered policy is actually invoked (Section H).
+  attendance/leave input — **implemented and verified** by a test asserting full pay under the
+  default policy even with real attendance/leave input rows present (Section H). No second policy
+  is registered yet, so a configuration-swap test (asserting a *different* policy is invoked) does
+  not yet exist - there is nothing non-default to swap to until Section X supplies a real formula.
 - An adjustment run's `PayrollRunLine`/`Payslip` rows are created without mutating any row of
   the run referenced by `corrects_run_id` — verified by a test asserting the original run's rows
   are byte-for-byte unchanged after an adjustment run completes (Section K).
 - `payslip.generated.v1` is published exactly once per `Payslip` row, with a payload containing
   no amount/pay/tax value — verified by a messaging test mirroring Asset/Expense/Workflow's own
-  event-content assertions (Section Q).
+  event-content assertions (Section Q). **Not yet verifiable - `Payslip` does not exist (Phase 4).**
+
+**Added by the Phase 2 revision:**
+- A genuine calculation failure (an ambiguous/invalid compensation state, not a mock) rolls back
+  every `PayrollRunLine`/`PayrollException` write from that attempt, and the run is left in
+  `CALCULATION_FAILED` — verified by an integration test that triggers a real engine exception,
+  asserts zero rows were persisted, then fixes the data and reprocesses the same run successfully.
+- Reprocessing a run never creates duplicate `PayrollRunLine`/`PayrollException` rows — verified
+  by both a database uniqueness constraint and an integration test reprocessing a rejected run.
+- An employee with no effective compensation produces a `PayrollException`, not a blocked run —
+  verified by an integration test asserting the run still reaches `CALCULATED` with a mixed
+  line/exception result.
+- `attendance.finalized.v1`/`leave.approved.v1` are consumed idempotently against a real broker,
+  and a non-`FINALIZED` status on the attendance event type is ignored — verified by messaging
+  integration tests mirroring the platform's existing event-idempotency test pattern.
 
 Full sign-off additionally requires every item in Section X to be resolved — this document
 alone does not make Payroll "ready to build" in the business sense, only in the technical sense
