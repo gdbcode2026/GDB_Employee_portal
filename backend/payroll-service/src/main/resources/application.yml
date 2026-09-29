@@ -21,4 +21,5 @@ management.endpoints.web.exposure.include: health,info,metrics
 management.endpoint.health.probes.enabled: true
 logging.structured.format.console: logstash
 gdb.clients.employee-service.base-url: ${GDB_EMPLOYEE_SERVICE_URI:http://localhost:8084}
+gdb.clients.document-service.base-url: ${GDB_DOCUMENT_SERVICE_URI:http://localhost:8089}
 gdb.messaging.outbox-relay.fixed-delay-ms: ${OUTBOX_RELAY_FIXED_DELAY_MS:5000}

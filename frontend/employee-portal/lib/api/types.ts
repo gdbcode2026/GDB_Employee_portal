@@ -294,6 +294,70 @@ export interface ProjectTask {
   updatedAt: string;
 }
 
+// Mirrors backend/payroll-service PayslipDtos field for field.
+export interface PayslipComponentLine {
+  code: string;
+  amount: number;
+}
+
+export interface PayslipYtdInfo {
+  available: boolean;
+  grossPay: number;
+  totalDeductions: number;
+}
+
+export interface PayslipTaxInfo {
+  configured: boolean;
+  periodAmount: number | null;
+  ytdAmount: number | null;
+}
+
+export interface PayslipSummary {
+  id: string;
+  runId: string;
+  periodId: string;
+  periodYear: number;
+  periodMonth: number;
+  generatedAt: string;
+}
+
+export interface PayslipDetail {
+  id: string;
+  employeeRef: string;
+  runId: string;
+  periodId: string;
+  documentRef: string;
+  periodYear: number;
+  periodMonth: number;
+  periodStart: string;
+  periodEnd: string;
+  paymentDate: string | null;
+  employeeNumber: string | null;
+  employeeName: string | null;
+  designation: string | null;
+  department: string | null;
+  joiningDate: string | null;
+  earnings: PayslipComponentLine[];
+  deductions: PayslipComponentLine[];
+  employerContributions: PayslipComponentLine[];
+  grossPay: number;
+  totalDeductions: number;
+  netPay: number;
+  amountInWords: string;
+  ytd: PayslipYtdInfo;
+  tax: PayslipTaxInfo;
+  generatedAt: string;
+}
+
+export interface PayslipDownloadResponse {
+  payslipId: string;
+  documentId: string;
+  objectKey: string;
+  checksum: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
 // Mirrors backend/document-service PolicyDtos field for field.
 export type PolicyStatus = "DRAFT" | "PUBLISHED";
 

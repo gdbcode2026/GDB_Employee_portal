@@ -236,10 +236,17 @@ class PayrollIntegrationTest {
         assertThat(payload).containsEntry("periodId", periodId.toString());
         assertThat(((Number) payload.get("employeeCount")).intValue()).isEqualTo(3);
 
-        // Terminal: finalize cannot be repeated.
+        // Re-finalizing an already-FINALIZED run is the documented idempotent retry mechanism
+        // (payslip generation retry) - it succeeds again rather than erroring, and does not
+        // re-mutate the run or duplicate the payroll.processed.v1 event.
         mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/finalize")
                         .with(jwt().jwt(jwt -> jwt.subject("checker-1")).authorities(new SimpleGrantedAuthority("payroll.approve"))))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FINALIZED"));
+        long processedEventCount = outboxEventRepository.findAll().stream()
+                .filter(event -> event.getEventType().equals("payroll.processed.v1") && event.getAggregateId().equals(run.id()))
+                .count();
+        assertThat(processedEventCount).isEqualTo(1);
     }
 
     @Test

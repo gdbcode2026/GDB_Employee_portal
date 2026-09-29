@@ -74,6 +74,28 @@ public class PayrollAuditLog {
         log.info("action={} resourceId={} actor={} correlationId={}", resourceType + ".read", resourceId, actor, correlationId);
     }
 
+    public void payslipGenerated(UUID payslipId, UUID employeeRef, UUID runId, String actor, UUID correlationId) {
+        log.info("action=payslip.generated payslipId={} employeeRef={} runId={} actor={} correlationId={}",
+                payslipId, employeeRef, runId, actor, correlationId);
+    }
+
+    /** {@code failureType} is the failing exception's class name only - safe metadata, never a payroll value. */
+    public void payslipGenerationFailed(UUID runId, UUID employeeRef, String failureType, String actor, UUID correlationId) {
+        log.warn("action=payslip.generation_failed runId={} employeeRef={} failureType={} actor={} correlationId={}",
+                runId, employeeRef, failureType, actor, correlationId);
+    }
+
+    /** {@code viewerRole} distinguishes an employee viewing their own payslip from HR/Finance viewing another's (item 10: enhanced audit for HR/Finance). */
+    public void payslipViewed(UUID payslipId, UUID employeeRef, String viewerRole, String actor, UUID correlationId) {
+        log.info("action=payslip.viewed payslipId={} employeeRef={} viewerRole={} actor={} correlationId={}",
+                payslipId, employeeRef, viewerRole, actor, correlationId);
+    }
+
+    public void payslipDownloaded(UUID payslipId, UUID employeeRef, String viewerRole, String actor, UUID correlationId) {
+        log.info("action=payslip.downloaded payslipId={} employeeRef={} viewerRole={} actor={} correlationId={}",
+                payslipId, employeeRef, viewerRole, actor, correlationId);
+    }
+
     private void record(String action, UUID resourceId, String actor, UUID correlationId, String note) {
         log.info("action={} resourceId={} actor={} correlationId={} note={}", action, resourceId, actor, correlationId, note);
     }

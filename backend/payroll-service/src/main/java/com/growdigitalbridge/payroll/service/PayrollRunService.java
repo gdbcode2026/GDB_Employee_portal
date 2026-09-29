@@ -50,10 +50,16 @@ import org.springframework.transaction.support.TransactionTemplate;
  * the acting identity equals the run's own {@code initiatedBy}, regardless of whether that
  * identity also holds {@code payroll.approve}.
  *
- * <p>Only {@code finalizeRun} produces a domain event: {@code payroll.processed.v1}
- * (PAYROLL_PROCESSED), with the exact payload Section Q already locks - run/period ID and
- * employee count. {@code payslip.generated.v1} is never produced here; it requires the {@code
- * Payslip} entity, which does not exist until Phase 4.
+ * <p>{@code finalizeRun} produces the {@code payroll.processed.v1} (PAYROLL_PROCESSED) domain
+ * event, with the exact payload Section Q locks - run/period ID and employee count - and then
+ * triggers {@link PayslipGenerationService} to generate one {@link
+ * com.growdigitalbridge.payroll.domain.Payslip} per employee. The state transition/event and the
+ * payslip generation are deliberately separate transactions (the same pattern as {@code
+ * process}): a payslip failure for one or more employees never rolls back the FINALIZED status or
+ * the PAYROLL_PROCESSED event, and never makes a FINALIZED run mutable again. Calling {@code
+ * finalizeRun} again on an already-FINALIZED run is therefore safe and is the documented retry
+ * mechanism (Section G/13): the state transition and event are skipped (no re-mutation, no
+ * duplicate event), and only the still-missing payslips are (re)attempted.
  */
 @Service
 public class PayrollRunService {
@@ -69,12 +75,14 @@ public class PayrollRunService {
     private final PayrollCalculationEngine calculationEngine;
     private final OutboxEventWriter outboxEventWriter;
     private final PayrollAuditLog auditLog;
+    private final com.growdigitalbridge.payroll.payslip.PayslipGenerationService payslipGenerationService;
     private final TransactionTemplate transactionTemplate;
 
     public PayrollRunService(PayrollRunRepository repository, PayrollPeriodRepository periodRepository,
                               PayrollRunLineRepository lineRepository, PayrollExceptionRepository exceptionRepository,
                               EmployeeClient employeeClient, PayrollCalculationEngine calculationEngine,
                               OutboxEventWriter outboxEventWriter, PayrollAuditLog auditLog,
+                              com.growdigitalbridge.payroll.payslip.PayslipGenerationService payslipGenerationService,
                               PlatformTransactionManager transactionManager) {
         this.repository = repository;
         this.periodRepository = periodRepository;
@@ -84,6 +92,7 @@ public class PayrollRunService {
         this.calculationEngine = calculationEngine;
         this.outboxEventWriter = outboxEventWriter;
         this.auditLog = auditLog;
+        this.payslipGenerationService = payslipGenerationService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -187,22 +196,36 @@ public class PayrollRunService {
         return toResponse(run);
     }
 
-    @Transactional
+    /**
+     * Not {@code @Transactional} itself, for the same reason as {@code process}: the
+     * state-transition-and-event step and the payslip-generation step must be able to commit (or
+     * fail) independently. See the class Javadoc for the idempotent-retry behavior on an
+     * already-FINALIZED run.
+     */
     public PayrollRunDtos.Response finalizeRun(UUID id, String actor, UUID correlationId) {
         PayrollRun run = find(id);
+        if (run.getStatus() == PayrollRunStatus.FINALIZED) {
+            payslipGenerationService.generatePayslipsForRun(id, actor, correlationId);
+            return toResponse(find(id));
+        }
         if (run.getStatus() != PayrollRunStatus.APPROVED) {
             throw new InvalidLifecycleTransitionException("Payroll run " + id + " cannot be finalized from status " + run.getStatus() + ".");
         }
         assertNotSelfApproval(run, actor, correlationId);
-        run.finalizeRun(actor, Instant.now());
-        auditLog.runFinalized(run.getId(), actor, correlationId);
 
-        outboxEventWriter.write("payroll.processed.v1", run.getId(), Map.of(
-                "payrollRunId", run.getId().toString(),
-                "periodId", run.getPeriodId().toString(),
-                "employeeCount", run.getEmployeeSnapshot().size()), correlationId);
+        transactionTemplate.executeWithoutResult(status -> {
+            PayrollRun r = find(id);
+            r.finalizeRun(actor, Instant.now());
+            repository.save(r);
+            auditLog.runFinalized(r.getId(), actor, correlationId);
+            outboxEventWriter.write("payroll.processed.v1", r.getId(), Map.of(
+                    "payrollRunId", r.getId().toString(),
+                    "periodId", r.getPeriodId().toString(),
+                    "employeeCount", r.getEmployeeSnapshot().size()), correlationId);
+        });
 
-        return toResponse(run);
+        payslipGenerationService.generatePayslipsForRun(id, actor, correlationId);
+        return toResponse(find(id));
     }
 
     /**

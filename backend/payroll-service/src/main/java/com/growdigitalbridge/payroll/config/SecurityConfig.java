@@ -33,12 +33,13 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
  * is rejected with 401 today - no bypass or placeholder authentication.
  *
  * Path rules grant entry using only the documented RBAC.md/PAYROLL_REQUIREMENTS.md capabilities:
- * {@code payroll.read.all}, {@code payroll.process}, {@code payroll.approve}. Neither
- * {@code payroll.read.self} nor {@code payslip.read.self/all} gates anything here -
- * PAYROLL_REQUIREMENTS.md Section P documents {@code payroll.read.self} without ever assigning
- * it an endpoint, and every payslip endpoint (Section O) belongs to Phase 4 (payslip
- * generation), not this Phase 1 foundation. Both permission names are reserved and unused by
- * this service until those gaps are closed by a later phase - see PayrollRunService's Javadoc.
+ * {@code payroll.read.all}, {@code payroll.process}, {@code payroll.approve}, and now {@code
+ * payslip.read.self}/{@code payslip.read.all} (Section O/P, payslip generation phase). {@code
+ * payroll.read.self} still gates nothing - Section P documents it without ever assigning it an
+ * endpoint. The payslip path rules only admit the request; {@code PayslipService}/{@code
+ * DocumentAccessGuard}-equivalent logic still decides, per resource, whether a {@code
+ * payslip.read.self}-only caller may see the specific payslip requested (their own only, server-
+ * side, never from a client-supplied identity).
  *
  * Period read access (no dedicated permission is documented for periods at all) is granted to
  * any of the three payroll-authorized capabilities, since HR/Finance staff performing any
@@ -81,6 +82,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/payroll/runs/*/reject").hasAuthority("payroll.approve")
                         .requestMatchers(HttpMethod.POST, "/api/v1/payroll/runs/*/finalize").hasAuthority("payroll.approve")
                         .requestMatchers(HttpMethod.GET, "/api/v1/payroll/runs", "/api/v1/payroll/runs/*").hasAuthority("payroll.read.all")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payroll/payslips/me")
+                        .hasAnyAuthority("payslip.read.self", "payslip.read.all")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payroll/payslips/*/download")
+                        .hasAnyAuthority("payslip.read.self", "payslip.read.all")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payroll/payslips/*")
+                        .hasAnyAuthority("payslip.read.self", "payslip.read.all")
                         .anyRequest().denyAll())
                 .build();
     }

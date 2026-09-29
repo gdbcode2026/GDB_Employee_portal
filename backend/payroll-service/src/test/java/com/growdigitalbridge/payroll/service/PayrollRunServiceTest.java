@@ -64,11 +64,14 @@ class PayrollRunServiceTest {
     private PayrollAuditLog auditLog;
 
     @Mock
+    private com.growdigitalbridge.payroll.payslip.PayslipGenerationService payslipGenerationService;
+
+    @Mock
     private PlatformTransactionManager transactionManager;
 
     private PayrollRunService service() {
         return new PayrollRunService(repository, periodRepository, lineRepository, exceptionRepository,
-                employeeClient, calculationEngine, outboxEventWriter, auditLog, transactionManager);
+                employeeClient, calculationEngine, outboxEventWriter, auditLog, payslipGenerationService, transactionManager);
     }
 
     private PayrollRun runInitiatedBy(String actor) {
@@ -136,5 +139,54 @@ class PayrollRunServiceTest {
 
         assertThatThrownBy(() -> service().process(id, "maker-1", null))
                 .isInstanceOf(com.growdigitalbridge.payroll.service.exception.InvalidLifecycleTransitionException.class);
+    }
+
+    private PayrollRun approvedRun(String initiator, String approver) {
+        PayrollRun run = runInitiatedBy(initiator);
+        run.startProcessing(initiator, Instant.now());
+        run.markCalculated(initiator, Instant.now());
+        run.submitForApproval(initiator, Instant.now());
+        run.approve(approver, Instant.now());
+        return run;
+    }
+
+    @Test
+    void finalizeRunTransitionsPublishesEventAndTriggersPayslipGeneration() {
+        PayrollRun run = approvedRun("maker-1", "checker-1");
+        UUID id = run.getId();
+        when(repository.findById(id)).thenReturn(Optional.of(run));
+
+        service().finalizeRun(id, "checker-1", null);
+
+        org.assertj.core.api.Assertions.assertThat(run.getStatus()).isEqualTo(PayrollRunStatus.FINALIZED);
+        verify(auditLog).runFinalized(id, "checker-1", null);
+        verify(outboxEventWriter).write(org.mockito.ArgumentMatchers.eq("payroll.processed.v1"), org.mockito.ArgumentMatchers.eq(id), any(), any());
+        verify(payslipGenerationService).generatePayslipsForRun(id, "checker-1", null);
+    }
+
+    @Test
+    void finalizeRunOnAnAlreadyFinalizedRunOnlyRetriesPayslipGenerationWithoutReemittingTheEvent() {
+        PayrollRun run = approvedRun("maker-1", "checker-1");
+        run.finalizeRun("checker-1", Instant.now());
+        UUID id = run.getId();
+        when(repository.findById(id)).thenReturn(Optional.of(run));
+
+        service().finalizeRun(id, "checker-1", null);
+
+        verify(outboxEventWriter, org.mockito.Mockito.never()).write(any(), any(), any(), any());
+        verify(auditLog, org.mockito.Mockito.never()).runFinalized(any(), any(), any());
+        verify(payslipGenerationService).generatePayslipsForRun(id, "checker-1", null);
+    }
+
+    @Test
+    void finalizeRunRejectsSelfApproval() {
+        PayrollRun run = approvedRun("maker-1", "checker-1");
+        run.approve("maker-1", Instant.now());
+        UUID id = run.getId();
+        when(repository.findById(id)).thenReturn(Optional.of(run));
+
+        assertThatThrownBy(() -> service().finalizeRun(id, "maker-1", null))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(payslipGenerationService, org.mockito.Mockito.never()).generatePayslipsForRun(any(), any(), any());
     }
 }

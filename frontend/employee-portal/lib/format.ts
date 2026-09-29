@@ -27,6 +27,15 @@ export function formatCurrency(amount: number, currency: string): string {
   }
 }
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+export function formatPeriodLabel(year: number, month: number): string {
+  return `${MONTH_NAMES[month - 1] ?? month} ${year}`;
+}
+
 export function titleCase(value: string): string {
   return value
     .toLowerCase()
