@@ -46,6 +46,15 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
  * payroll action plausibly need to see which periods exist - a minimum decision, not an
  * additional grant beyond what a payroll-authorized identity already holds.
  *
+ * Compensation Management/Statutory Profile/Pay Component/Exception endpoints (Compensation
+ * Management task) reuse only the already-documented {@code payroll.process}/{@code
+ * payroll.read.all} - no new HR-vs-Finance split permission is introduced (that split remains
+ * PENDING_GDB_APPROVAL, Section X). Writes require {@code payroll.process}; reads accept either
+ * {@code payroll.process} or {@code payroll.read.all}. There is no self-service read or write
+ * path for any of these - an employee token, however many {@code payroll.read.self}/{@code
+ * payslip.*} authorities it carries, has none of the authorities these matchers require and is
+ * therefore denied. Admin is never granted {@code payroll.*} automatically by this configuration.
+ *
  * {@code payroll.process} is the maker side (create period, create/process a run, initiate an
  * adjustment run against a FINALIZED one - Section K); {@code payroll.approve} is the checker
  * side (approve/reject/finalize a run) - see PAYROLL_REQUIREMENTS.md Section J. Self-approval
@@ -85,6 +94,20 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/payroll/runs/*/finalize").hasAuthority("payroll.approve")
                         .requestMatchers(HttpMethod.POST, "/api/v1/payroll/runs/*/adjustments").hasAuthority("payroll.process")
                         .requestMatchers(HttpMethod.GET, "/api/v1/payroll/runs", "/api/v1/payroll/runs/*").hasAuthority("payroll.read.all")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payroll/compensations").hasAuthority("payroll.process")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/payroll/compensations/*").hasAuthority("payroll.process")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payroll/compensations", "/api/v1/payroll/compensations/*")
+                        .hasAnyAuthority("payroll.process", "payroll.read.all")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payroll/pay-components").hasAuthority("payroll.process")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/payroll/pay-components/*").hasAuthority("payroll.process")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payroll/pay-components", "/api/v1/payroll/pay-components/*")
+                        .hasAnyAuthority("payroll.process", "payroll.read.all")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/payroll/statutory-profiles/*").hasAuthority("payroll.process")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payroll/statutory-profiles/*")
+                        .hasAnyAuthority("payroll.process", "payroll.read.all")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payroll/exceptions/*/resolve").hasAuthority("payroll.process")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payroll/exceptions")
+                        .hasAnyAuthority("payroll.process", "payroll.read.all")
                         .requestMatchers(HttpMethod.GET, "/api/v1/payroll/payslips/me")
                         .hasAnyAuthority("payslip.read.self", "payslip.read.all")
                         .requestMatchers(HttpMethod.GET, "/api/v1/payroll/payslips/*/download")

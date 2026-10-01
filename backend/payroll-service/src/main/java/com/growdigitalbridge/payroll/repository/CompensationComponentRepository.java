@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface CompensationComponentRepository extends JpaRepository<CompensationComponent, UUID> {
 
     List<CompensationComponent> findByCompensationId(UUID compensationId);
+
+    void deleteByCompensationId(UUID compensationId);
 }

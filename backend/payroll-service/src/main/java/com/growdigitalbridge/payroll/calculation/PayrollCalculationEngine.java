@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.growdigitalbridge.payroll.domain.CompensationComponent;
 import com.growdigitalbridge.payroll.domain.CompensationComponentType;
 import com.growdigitalbridge.payroll.domain.EmployeeCompensation;
+import com.growdigitalbridge.payroll.domain.EmployeeStatutoryProfile;
 import com.growdigitalbridge.payroll.domain.PayrollAttendanceInput;
 import com.growdigitalbridge.payroll.domain.PayrollException;
 import com.growdigitalbridge.payroll.domain.PayrollExceptionReason;
@@ -13,6 +14,7 @@ import com.growdigitalbridge.payroll.domain.PayrollPeriod;
 import com.growdigitalbridge.payroll.domain.PayrollRun;
 import com.growdigitalbridge.payroll.domain.PayrollRunLine;
 import com.growdigitalbridge.payroll.repository.CompensationComponentRepository;
+import com.growdigitalbridge.payroll.repository.EmployeeStatutoryProfileRepository;
 import com.growdigitalbridge.payroll.repository.PayrollAttendanceInputRepository;
 import com.growdigitalbridge.payroll.repository.PayrollExceptionRepository;
 import com.growdigitalbridge.payroll.repository.PayrollLeaveInputRepository;
@@ -42,7 +44,12 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>An employee with no effective compensation is not an error that stops the run (item 10,
  * Section I/X unresolved): it produces a {@link PayrollException} instead of a line, and
- * calculation continues for every other employee.
+ * calculation continues for every other employee. An employee *with* compensation still gets a
+ * statutory-profile completeness check (Compensation Management task, item 3/4): a missing
+ * profile, or a missing PF/ESI identifier while that scheme is {@code APPLICABLE}/{@code
+ * PENDING_VERIFICATION}, or a missing Professional Tax jurisdiction under the same condition,
+ * each produces its own {@link PayrollException} *alongside* the normally-calculated line - these
+ * never skip or alter the line, they only make the gap visible.
  *
  * <p>Reprocessing is idempotent (item 11): existing lines/exceptions for this run are deleted
  * before recalculating, so a run can be reprocessed any number of times before {@code
@@ -60,6 +67,7 @@ public class PayrollCalculationEngine {
     private final PayrollExceptionRepository exceptionRepository;
     private final PayrollAttendanceInputRepository attendanceInputRepository;
     private final PayrollLeaveInputRepository leaveInputRepository;
+    private final EmployeeStatutoryProfileRepository statutoryProfileRepository;
     private final CalculationStrategyRegistry calculationStrategyRegistry;
     private final ProrationPolicyRegistry prorationPolicyRegistry;
     private final PayrollAuditLog auditLog;
@@ -70,6 +78,7 @@ public class PayrollCalculationEngine {
                                      PayrollRunLineRepository lineRepository, PayrollExceptionRepository exceptionRepository,
                                      PayrollAttendanceInputRepository attendanceInputRepository,
                                      PayrollLeaveInputRepository leaveInputRepository,
+                                     EmployeeStatutoryProfileRepository statutoryProfileRepository,
                                      CalculationStrategyRegistry calculationStrategyRegistry,
                                      ProrationPolicyRegistry prorationPolicyRegistry, PayrollAuditLog auditLog,
                                      ObjectMapper objectMapper) {
@@ -81,6 +90,7 @@ public class PayrollCalculationEngine {
         this.exceptionRepository = exceptionRepository;
         this.attendanceInputRepository = attendanceInputRepository;
         this.leaveInputRepository = leaveInputRepository;
+        this.statutoryProfileRepository = statutoryProfileRepository;
         this.calculationStrategyRegistry = calculationStrategyRegistry;
         this.prorationPolicyRegistry = prorationPolicyRegistry;
         this.auditLog = auditLog;
@@ -109,9 +119,7 @@ public class PayrollCalculationEngine {
         for (UUID employeeRef : run.getEmployeeSnapshot()) {
             Optional<EmployeeCompensation> compensation = compensationResolver.resolveEffective(employeeRef, period);
             if (compensation.isEmpty()) {
-                exceptionRepository.save(new PayrollException(UUID.randomUUID(), runId, employeeRef,
-                        PayrollExceptionReason.NO_EFFECTIVE_COMPENSATION, now));
-                auditLog.payrollException(runId, employeeRef, PayrollExceptionReason.NO_EFFECTIVE_COMPENSATION.name(), actor, correlationId);
+                saveException(runId, employeeRef, PayrollExceptionReason.NO_EFFECTIVE_COMPENSATION, actor, correlationId, now);
                 exceptionCount++;
                 continue;
             }
@@ -154,12 +162,51 @@ public class PayrollCalculationEngine {
             lineRepository.save(new PayrollRunLine(UUID.randomUUID(), runId, employeeRef, grossPay, totalDeductions,
                     totalEmployerContributions, netPay, writeBreakdown(breakdown), actor, now));
             lineCount++;
+
+            exceptionCount += recordStatutoryProfileGaps(runId, employeeRef, actor, correlationId, now);
         }
 
         run.markCalculated(actor, now);
         runRepository.save(run);
 
         return new CalculationResult(lineCount, exceptionCount);
+    }
+
+    /**
+     * Surfaces statutory-profile data-quality gaps for an employee who otherwise received a
+     * normal {@link PayrollRunLine} (item 3/4): a missing profile, or a missing identifier while
+     * PF/ESI is {@code APPLICABLE}/{@code PENDING_VERIFICATION} (never inferred as "not
+     * applicable" merely because the identifier is absent), or a missing Professional Tax
+     * jurisdiction under the same condition. Purely additive visibility - it never skips or alters
+     * the line already calculated above, and whether any of these should ever block a run remains
+     * PENDING_GDB_APPROVAL (Section X).
+     */
+    private int recordStatutoryProfileGaps(UUID runId, UUID employeeRef, String actor, UUID correlationId, Instant now) {
+        Optional<EmployeeStatutoryProfile> profile = statutoryProfileRepository.findByEmployeeRef(employeeRef);
+        if (profile.isEmpty()) {
+            saveException(runId, employeeRef, PayrollExceptionReason.MISSING_STATUTORY_PROFILE, actor, correlationId, now);
+            return 1;
+        }
+
+        int count = 0;
+        if (profile.get().isPfIdentifierMissing()) {
+            saveException(runId, employeeRef, PayrollExceptionReason.MISSING_PF_IDENTIFIER, actor, correlationId, now);
+            count++;
+        }
+        if (profile.get().isEsiIdentifierMissing()) {
+            saveException(runId, employeeRef, PayrollExceptionReason.MISSING_ESI_IDENTIFIER, actor, correlationId, now);
+            count++;
+        }
+        if (profile.get().isPtJurisdictionMissing()) {
+            saveException(runId, employeeRef, PayrollExceptionReason.OTHER_CONFIGURATION_ERROR, actor, correlationId, now);
+            count++;
+        }
+        return count;
+    }
+
+    private void saveException(UUID runId, UUID employeeRef, PayrollExceptionReason reason, String actor, UUID correlationId, Instant now) {
+        exceptionRepository.save(new PayrollException(UUID.randomUUID(), runId, employeeRef, reason, now));
+        auditLog.payrollException(runId, employeeRef, reason.name(), actor, correlationId);
     }
 
     private String writeBreakdown(List<Map<String, Object>> breakdown) {

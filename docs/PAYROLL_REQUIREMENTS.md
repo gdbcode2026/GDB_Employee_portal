@@ -8,10 +8,11 @@ contradict, `docs/DEVELOPMENT_ROADMAP.md`, `docs/architecture/MICROSERVICES.md`,
 `docs/workflows/WORKFLOWS.md`, and `docs/PAYROLL_REPORTING_DECISIONS.md`.
 
 **Status: Phase 1 (Foundation), Phase 2 (Calculation Core), Phase 3 (Approval/Finalization),
-Phase 4 (Payslip Generation), and Adjustment Runs (Section K) are all implemented at the
-*technical* level. Every sensitive business function - real salary/tax/statutory values, the
-actual pay-component catalogue, the adjustment/netting accounting policy, and every other item in
-Section X - remains gated on GDB approval.**
+Phase 4 (Payslip Generation), Adjustment Runs (Section K), and Employee Compensation Management +
+Statutory Profile + Payroll Exceptions (Section G/E) are all implemented at the *technical* level.
+Every sensitive business function - real salary/tax/statutory values, the actual pay-component
+catalogue, the adjustment/netting accounting policy, and every other item in Section X - remains
+gated on GDB approval.**
 A `payroll-service` module implements `PayrollPeriod`/`PayrollRun` lifecycle (Section D, now
 including `PROCESSING`/`CALCULATION_FAILED`), RBAC (`payroll.process`/`payroll.approve`/
 `payroll.read.all`), audit logging, idempotency, **and** a real calculation pipeline: effective-dated
@@ -266,6 +267,78 @@ for adjustment runs remains exactly as PENDING_GDB_APPROVAL as before this revis
 resolves none of it, only the technical mechanics of creating and processing the adjustment run
 itself.
 
+### Revision: Employee Compensation Management, Statutory Profile, and extended Payroll
+Exceptions implemented
+
+Management APIs for `EmployeeCompensation`/`CompensationComponent`/`PayComponent` (previously
+empty schema with no REST API, per the Phase 1 revision above), a new `EmployeeStatutoryProfile`
+entity, and an extended `PayrollException` reason/status model are now implemented, per Section
+G/E. **No salary amount, pay-component catalogue content, statutory rate, threshold, or
+eligibility rule is introduced anywhere** — every new field is structural (dates, status,
+identifiers, references), never a value:
+
+- **Compensation CRUD** (Section G) — HR/Finance (`payroll.process` for writes, `payroll.process`
+  or `payroll.read.all` for reads — no new permission) can create, retrieve, list, and update an
+  `EmployeeCompensation` record together with its `CompensationComponent` lines in one request
+  (full-replace semantics on update). There is **no self-service endpoint of any kind** for this
+  data — no employee token can read or write their own or anyone else's compensation.
+- **Overlap prevention at write time** — a new record whose `[effectiveFrom, effectiveTo]` range
+  overlaps an existing `ACTIVE` record for the same employee is rejected (409) before it can ever
+  be persisted. This is a write-time guard, not a change to the calculation engine's existing
+  ambiguity handling (Section H still fails the whole run if ambiguous data somehow exists) —
+  the guard is what keeps that case from arising going forward.
+- **Historical immutability** — once a compensation record has actually been read by a
+  `FINALIZED` run (derived from existing `PayrollRunLine`/`PayrollRun`/`PayrollPeriod` data, not a
+  new tracking column), it can no longer be updated; attempting to do so is rejected (409).
+  Records never yet used by a finalized run remain updatable.
+- **Pay-component catalogue management** — `PayComponent` gains an `active` flag and full audit
+  columns; HR/Finance can create/retrieve/list/update catalogue entries (code, name, type,
+  active status). `CompensationComponent.componentCode` must reference an existing, active
+  `PayComponent` of the matching type, or the request is rejected (422). Still only the Common
+  India Payroll V1 Baseline's generic names/types — no rate, amount, or real GDB catalogue.
+- **Employee statutory profile** (new entity) — one record per employee holding PF/EPF, ESI, and
+  Professional Tax applicability status (`APPLICABLE`/`NOT_APPLICABLE`/`PENDING_VERIFICATION`),
+  identifiers (UAN, PF member ID, ESI identifier, PT jurisdiction), and each scheme's effective
+  dates. **A missing identifier is never inferred as `NOT_APPLICABLE`** — only an explicit status
+  change does that; a missing identifier while status is `APPLICABLE` or `PENDING_VERIFICATION`
+  is a data-quality gap, surfaced as a `PayrollException` (below), never silently assumed away.
+  Managed by the same `payroll.process`/`payroll.read.all` permissions; no self-service path.
+- **Extended `PayrollException` model** — the reason vocabulary now also includes
+  `MISSING_STATUTORY_PROFILE`, `MISSING_PF_IDENTIFIER`, `MISSING_ESI_IDENTIFIER`,
+  `INVALID_EFFECTIVE_DATES`, `OVERLAPPING_COMPENSATION`, `INVALID_PAY_COMPONENT`, and
+  `OTHER_CONFIGURATION_ERROR`, alongside the pre-existing `NO_EFFECTIVE_COMPENSATION`
+  (functionally the same condition the task calls "missing compensation" — not renamed, to avoid
+  a breaking change to existing data/tests). Every exception now carries a `status`
+  (`OPEN`/`RESOLVED`) and a resolution actor/timestamp once resolved; `GET
+  /payroll/exceptions` and `POST /payroll/exceptions/{id}/resolve` expose this. **Resolution is
+  record-keeping only** — marking an exception resolved does not alter any `PayrollRunLine`,
+  retrigger calculation, or change whether the run was/is blocked; whether any exception type
+  *should* block a run remains exactly as undecided as the pre-existing
+  `NO_EFFECTIVE_COMPENSATION` business question (Section X).
+- **Calculation engine integration** (Section H) — after successfully writing each employee's
+  `PayrollRunLine`, the engine now additionally checks that employee's statutory profile and
+  records `MISSING_STATUTORY_PROFILE`/`MISSING_PF_IDENTIFIER`/`MISSING_ESI_IDENTIFIER`/
+  `OTHER_CONFIGURATION_ERROR` (for a missing PT jurisdiction) exceptions as needed — purely
+  additive visibility alongside the line, never a replacement for it and never a new reason to
+  block the run. `OVERLAPPING_COMPENSATION`/`INVALID_EFFECTIVE_DATES`/`INVALID_PAY_COMPONENT` are
+  defined in the reason enum but are enforced at write time by the new compensation/pay-component
+  services (above) rather than ever being raised by the calculation engine itself, since the
+  states they describe can no longer be persisted — this is a deliberate symmetry, not an
+  unfinished feature.
+- **Database** — one new Flyway migration (`V4`) adds `employee_compensations.status`, six new
+  `pay_components` columns (`active` + the standard audit columns), the new
+  `employee_statutory_profiles` table, and `payroll_exceptions.{status,resolved_at,resolved_by}`;
+  it also relaxes `payroll_exceptions`' uniqueness from `(run_id, employee_ref)` to `(run_id,
+  employee_ref, reason)`, since one employee can now legitimately have more than one open
+  exception reason in the same run.
+
+**Nothing else changed.** No real salary amount, pay-component catalogue content, statutory rate,
+threshold, eligibility rule, TDS rule, benefit, real proration/LOP formula, adjustment/netting
+accounting policy, or HR-vs-Finance authority split was introduced or decided by this revision —
+every item in Section X remains exactly as PENDING_GDB_APPROVAL as before. The existing
+calculation pipeline, approval/finalization flow, adjustment-run mechanics, and payslip generation
+are unchanged beyond the single additive statutory-profile-gap check described above.
+
 ---
 
 ## A. Payroll scope
@@ -355,12 +428,13 @@ entities decisions 4–9 require to be actionable:
 | Entity | Purpose | Status |
 |---|---|---|
 | `PayrollPeriod` | One calendar month (decision 3): year, month, start/end dates, cut-off date, status | **Implemented** (Phase 1) |
-| `EmployeeCompensation` | Effective-dated compensation record per employee (decision 4): employee ref, currency (INR), effective-from/to, status | **Implemented** (Phase 1 schema; Phase 2 resolution logic) - no amount value seeded anywhere |
+| `EmployeeCompensation` | Effective-dated compensation record per employee (decision 4): employee ref, currency (INR), effective-from/to, status (`ACTIVE`/`INACTIVE`) | **Implemented** (Phase 1 schema; Phase 2 resolution logic; CRUD + overlap prevention + historical immutability implemented in the Compensation Management revision) - no amount value seeded anywhere |
 | `CompensationComponent` | A single component (earning/deduction/employer-contribution) attached to an `EmployeeCompensation`, referencing the `PayComponent` catalogue, plus a `calculation_strategy_code`/`proration_policy_code` identifying which registered strategy applies | **Implemented**; catalogue *content* (real rates/amounts) remains PENDING |
-| `PayComponent` | Catalogue master (code, name, type) | **Implemented** - seeded with the Common India Payroll V1 Baseline's generic component names/types only (Basic Salary, HRA, Other Allowance, Bonus, Overtime, Other Earning, PF, ESI, Professional Tax, TDS, Loan/Advance, Other Deduction, Employer PF, Employer ESI); no rate, amount, or eligibility rule |
+| `PayComponent` | Catalogue master (code, name, type, active flag) | **Implemented** - seeded with the Common India Payroll V1 Baseline's generic component names/types only (Basic Salary, HRA, Other Allowance, Bonus, Overtime, Other Earning, PF, ESI, Professional Tax, TDS, Loan/Advance, Other Deduction, Employer PF, Employer ESI); CRUD implemented in the Compensation Management revision; no rate, amount, or eligibility rule |
+| `EmployeeStatutoryProfile` | One per-employee record of PF/ESI/Professional Tax applicability status, identifiers, and effective dates (new entity) | **Implemented** (Compensation Management revision) - no statutory rate/threshold/eligibility rule; a missing identifier is never inferred as `NOT_APPLICABLE` (Section G) |
 | `PayrollRun` | One run for one period: run type (REGULAR/ADJUSTMENT), corrects-run reference, status (Section D), initiated/approved/finalized actors and timestamps | **Implemented** |
 | `PayrollRunLine` | Per-employee calculated result within a run: earnings/deductions/employer-contributions breakdown (structured JSON), gross pay, total deductions, total employer contributions, net pay | **Implemented** (Phase 2) - immutable once written; a reprocess deletes and recreates rows rather than mutating them |
-| `PayrollException` | Recorded instead of a line for an employee with no effective compensation for the period (reason code, employee ref) | **Implemented** (Phase 2) - new entity, not in the original specification; the underlying business question (block vs. silently skip the run) remains PENDING (Section X) |
+| `PayrollException` | Recorded alongside or instead of a line for a data-quality/configuration gap (reason code, employee ref, resolution status) | **Implemented** (Phase 2; reason vocabulary and `status`/`resolved_by`/`resolved_at` extended in the Compensation Management revision - Section X) - the underlying business question (whether any reason should block the run) remains PENDING (Section X) |
 | `PayrollAttendanceInput` | Payroll's own snapshot of one `attendance.finalized.v1` event (employee ref, work date, attendance ref) | **Implemented** (Phase 2) - new entity |
 | `PayrollLeaveInput` | Payroll's own snapshot of one `leave.approved.v1` event (employee ref, leave request ref, approved units) | **Implemented** (Phase 2) - new entity; Leave's event carries no date range, so this snapshot is not period-filtered (a data-availability gap, not an invented assumption) |
 | `Payslip` | One finalized, generated payslip per employee per run: employee ref, run ref, period ref, document ref, generated timestamp | **Implemented** (Phase 4) - unique per `(run_id, employee_ref)`; an adjustment run's payslip is an independent row, never a mutation of the original run's payslip |
@@ -374,7 +448,9 @@ cross-service references, `*_id` for local foreign keys):
 
 - **payroll_periods**: `id`, `year`, `month`, `start_date`, `end_date`, `cut_off_date`, `status`.
 - **employee_compensations**: `id`, `employee_ref`, `currency` (fixed `INR` initially, decision 2),
-  `effective_from`, `effective_to` (nullable = still active), `status`.
+  `effective_from`, `effective_to` (nullable = still active), `status` (`ACTIVE`/`INACTIVE`,
+  **added** in the Compensation Management revision - an administrative on/off switch independent
+  of effective-dating).
 - **compensation_components**: `id`, `compensation_id FK`, `component_code`, `component_type`
   (`EARNING`/`DEDUCTION`/`EMPLOYER_CONTRIBUTION`), `amount` (fixed value only — no formula/
   `calculation_type` column exists; **Implemented**), `proration_policy_code` (nullable;
@@ -382,10 +458,18 @@ cross-service references, `*_id` for local foreign keys):
   Section H — no formula is stored here, only a policy identifier; **Implemented**),
   `calculation_strategy_code` (nullable; identifies the configurable calculation strategy for
   the component's amount, same pattern; **Implemented**, added during Phase 2).
-- **pay_components**: `id`, `code`, `name`, `type`. **Implemented** — seeded with the Common
-  India Payroll V1 Baseline's generic component names/types only (Section "Common India Payroll
-  V1 Baseline" above); no rate, amount, or eligibility rule. The *actual* GDB catalogue (which of
-  these are used, at what amount) remains PENDING_GDB_APPROVAL.
+- **pay_components**: `id`, `code`, `name`, `type`, plus (**added** in the Compensation Management
+  revision) `active` and the standard `created_at/created_by/updated_at/updated_by/version` audit
+  columns. **Implemented** — seeded with the Common India Payroll V1 Baseline's generic component
+  names/types only (Section "Common India Payroll V1 Baseline" above); no rate, amount, or
+  eligibility rule. The *actual* GDB catalogue (which of these are used, at what amount) remains
+  PENDING_GDB_APPROVAL.
+- **employee_statutory_profiles** (new, Compensation Management revision): `id`, `employee_ref`
+  (unique), `pf_status`/`esi_status`/`pt_status` (`APPLICABLE`/`NOT_APPLICABLE`/
+  `PENDING_VERIFICATION`), `pf_uan`, `pf_member_id`, `esi_identifier`, `pt_jurisdiction`
+  (identifiers - sensitive, never logged), `pf_effective_from/to`, `esi_effective_from/to`,
+  `pt_effective_from/to`, standard audit columns. **Implemented.** No statutory rate, threshold,
+  or eligibility rule is stored - only applicability status and identifiers.
 - **payroll_runs**: `id`, `period_id FK`, `run_type` (`REGULAR`/`ADJUSTMENT`), `corrects_run_id`
   (nullable, self-referencing FK, populated only for `ADJUSTMENT` runs), `status` (now including
   `PROCESSING`/`CALCULATION_FAILED`, Section D), `initiated_by`, `approved_by`, `approved_at`,
@@ -404,8 +488,14 @@ cross-service references, `*_id` for local foreign keys):
   positivity constraint is applied to any amount column — adjustment-run lines may be negative
   (Section K). **Implemented** (Phase 2); unique per `(run_id, employee_ref)`.
 - **payroll_exceptions** (new, Phase 2, not in the original specification): `id`, `run_id FK`,
-  `employee_ref`, `reason` (`NO_EFFECTIVE_COMPENSATION` is the only value defined so far),
-  `detected_at`. Unique per `(run_id, employee_ref)`. **Implemented.**
+  `employee_ref`, `reason` (`NO_EFFECTIVE_COMPENSATION`, plus - **added** in the Compensation
+  Management revision - `MISSING_STATUTORY_PROFILE`, `MISSING_PF_IDENTIFIER`,
+  `MISSING_ESI_IDENTIFIER`, `INVALID_EFFECTIVE_DATES`, `OVERLAPPING_COMPENSATION`,
+  `INVALID_PAY_COMPONENT`, `OTHER_CONFIGURATION_ERROR`), `detected_at`, plus (**added** in the
+  same revision) `status` (`OPEN`/`RESOLVED`), `resolved_at`, `resolved_by`. Unique per `(run_id,
+  employee_ref, reason)` - **relaxed** from `(run_id, employee_ref)` in the same revision, since
+  one employee may now have more than one distinct open exception reason in the same run.
+  **Implemented.**
 - **payroll_attendance_inputs** (new, Phase 2): `id`, `employee_ref`, `work_date`,
   `attendance_ref`, `source_event_id`, `received_at`. Unique per `(employee_ref, work_date)`.
   **Implemented.**
@@ -442,6 +532,59 @@ commonly takes in Indian payroll — not as GDB's actual catalogue, not as rates
 eligibility rules.** The actual catalogue, its applicability, and every rate/threshold remain
 PENDING_GDB_APPROVAL (Section X); no value is assumed.
 
+### Compensation/pay-component/statutory-profile management (implemented)
+
+HR/Finance management of this model — not just the calculation engine's read path — is now
+implemented:
+
+- **Compensation CRUD** — `EmployeeCompensation` + its `CompensationComponent` lines can be
+  created, retrieved, listed per employee, and updated (full-replace of the component list,
+  `effectiveFrom`/`effectiveTo`/`status` otherwise). Gated by `payroll.process` (writes) and
+  `payroll.process`/`payroll.read.all` (reads) — the same permissions already documented in
+  Section P, no new one. **There is no endpoint, under any permission, that lets an employee read
+  or modify their own compensation** — self-service for this data is not offered at all, per this
+  revision's explicit instruction, pending the HR-vs-Finance authority split (Section X).
+- **Overlap prevention** — creating or updating a record so that its `[effectiveFrom,
+  effectiveTo]` range overlaps another `ACTIVE` record for the same employee is rejected before
+  persistence (409 `Conflict`). This keeps the calculation engine's pre-existing ambiguous-data
+  failure mode (Section H) from being reachable through the new write path; it does not change
+  what the engine does if ambiguous data somehow still exists.
+- **Historical immutability** — a compensation record that a `FINALIZED` run has already read
+  (determined by checking whether any of the employee's `PayrollRunLine`s belongs to a `FINALIZED`
+  run whose period start date falls inside this record's effective range) can no longer be
+  updated (409). No dedicated "used by a run" column was added; this is derived from existing
+  `PayrollRunLine`/`PayrollRun`/`PayrollPeriod` data.
+- **Pay-component catalogue CRUD** — code/name/type/active-status management for `PayComponent`,
+  same permission split as above. A `CompensationComponent.componentCode` must reference an
+  existing, `active` `PayComponent` whose `type` matches, or the request is rejected (422) — this
+  reuses the already-seeded Common India Payroll V1 Baseline codes; no new catalogue content is
+  introduced.
+- **Employee statutory profile** — one `EmployeeStatutoryProfile` per employee, upserted (create
+  or full-replace) and retrieved under the same permissions, with PF/EPF, ESI, and Professional
+  Tax each tracked as applicability status + identifier + effective dates. **A missing identifier
+  is never inferred as `NOT_APPLICABLE`** — the status field is the only source of truth for
+  applicability; a missing identifier while status is `APPLICABLE` or `PENDING_VERIFICATION` is
+  treated as a data-quality gap (see "Extended payroll exceptions" below), never silently assumed
+  resolved by the absence of data.
+
+### Extended payroll exceptions (implemented)
+
+`PayrollException`'s reason vocabulary now also covers configuration/data-quality gaps beyond
+"no effective compensation": `MISSING_STATUTORY_PROFILE`, `MISSING_PF_IDENTIFIER`,
+`MISSING_ESI_IDENTIFIER`, `INVALID_EFFECTIVE_DATES`, `OVERLAPPING_COMPENSATION`,
+`INVALID_PAY_COMPONENT`, `OTHER_CONFIGURATION_ERROR` (Section F). Every exception now carries a
+resolution `status` (`OPEN`/`RESOLVED`) with `resolved_by`/`resolved_at`, exposed via `GET
+/payroll/exceptions` (optionally filtered by run) and `POST /payroll/exceptions/{id}/resolve`.
+Resolving an exception is pure record-keeping — it never re-runs calculation or changes a
+`PayrollRunLine`. Of the new reasons, only `MISSING_STATUTORY_PROFILE`/`MISSING_PF_IDENTIFIER`/
+`MISSING_ESI_IDENTIFIER`/`OTHER_CONFIGURATION_ERROR` (missing PT jurisdiction) are ever raised by
+the calculation engine itself (Section H, additive check after a line is saved);
+`OVERLAPPING_COMPENSATION`/`INVALID_EFFECTIVE_DATES`/`INVALID_PAY_COMPONENT` are enforced instead
+at write time by the services above, so the states they name can no longer be persisted for the
+engine to encounter. **Whether any exception reason should block a run remains exactly as
+undecided as the pre-existing `NO_EFFECTIVE_COMPENSATION` question (Section X)** — this revision
+adds visibility and resolution tracking only, never a blocking rule.
+
 ## H. Payroll calculation architecture
 
 **Implemented** (Section Y Phase 2), as a configuration-driven pipeline with no statutory/tax
@@ -453,7 +596,11 @@ calculation pipeline for a `PayrollRun`:
 2. Resolve the set of employees included in the run (Section I). **Implemented** (Phase 1 snapshot).
 3. For each included employee, resolve the `EmployeeCompensation` effective for that period.
    **Implemented** (`CompensationResolver`); an employee with none produces a `PayrollException`
-   instead (Section E/X), never a blocked run.
+   instead (Section E/X), never a blocked run. After a line is successfully saved, the employee's
+   `EmployeeStatutoryProfile` is additionally checked (Compensation Management revision, Section
+   G) and a `MISSING_STATUTORY_PROFILE`/`MISSING_PF_IDENTIFIER`/`MISSING_ESI_IDENTIFIER`/
+   `OTHER_CONFIGURATION_ERROR` exception is recorded per gap found — purely additive, never
+   replacing or blocking the line.
 4. Incorporate attendance/leave inputs (Section I) through a **configurable proration policy**
    (below) to determine any pay adjustment (e.g. for unpaid leave or loss-of-pay days).
    **Implemented** as a registry lookup; the only registered policy is the no-op default below.
@@ -807,6 +954,24 @@ itself a required `RBAC.md` addition (Section X) — not an existing permission:
   "secure download"; returns a short-lived, authenticated download reference, never a public URL
   (Section S).
 
+**Added in the Compensation Management revision** (same reuse-only-existing-permissions
+principle — no new permission introduced):
+
+- `POST /payroll/compensations` / `PATCH /payroll/compensations/{id}` — `payroll.process`.
+- `GET /payroll/compensations` / `GET /payroll/compensations/{id}` — `payroll.process` or
+  `payroll.read.all`.
+- `POST /payroll/pay-components` / `PATCH /payroll/pay-components/{id}` — `payroll.process`.
+- `GET /payroll/pay-components` / `GET /payroll/pay-components/{id}` — `payroll.process` or
+  `payroll.read.all`.
+- `PUT /payroll/statutory-profiles/{employeeRef}` — `payroll.process` (create-or-replace).
+- `GET /payroll/statutory-profiles/{employeeRef}` — `payroll.process` or `payroll.read.all`.
+- `GET /payroll/exceptions` — `payroll.process` or `payroll.read.all`.
+- `POST /payroll/exceptions/{id}/resolve` — `payroll.process`.
+
+None of these endpoints accept a client-supplied employee identity as a self-service path — every
+one requires a payroll-authorized caller, matching the explicit "no employee self-service for
+this data" instruction.
+
 No endpoint beyond this list is proposed. Exact request/response shapes are left to
 implementation time and are not part of this decision-locking exercise.
 
@@ -824,6 +989,11 @@ introduced deliberately per this task's explicit instruction — it is not an un
 Its naming follows the existing `<domain>.<verb>` convention exactly. Section J documents the
 maker-checker split and self-approval prevention this permission exists to support. Admin does
 not receive either payroll permission automatically (Section J).
+
+The Compensation Management revision's endpoints (Section O) deliberately introduce **no new
+permission** — they reuse `payroll.process`/`payroll.read.all` exactly as already documented
+above, since the exact HR-vs-Finance authority split remains PENDING_GDB_APPROVAL (Section X) and
+inventing a split-specific permission now would prejudge that decision.
 
 ## Q. Domain events
 
@@ -1004,6 +1174,13 @@ sensitive business function are still gated pending GDB approvals.
 6. **Audit/security hardening** — Section R/S controls, verified before any real payroll data
    is processed. Every state transition (including adjustment creation) is audit-logged
    (`PayrollAuditLog`); the real-data hardening pass itself remains pending real payroll content.
+7. **Compensation management** — HR/Finance CRUD for `EmployeeCompensation`/
+   `CompensationComponent`/`PayComponent`, the new `EmployeeStatutoryProfile` entity, and the
+   extended `PayrollException` reason/status model (Section G/E/O). **Implemented** — see the
+   "Revision: Employee Compensation Management, Statutory Profile, and extended Payroll
+   Exceptions implemented" section above. Still gated on Section X: no real salary value, pay-
+   component catalogue content, statutory rate/threshold/eligibility rule, or HR-vs-Finance
+   authority split exists.
 
 **Revised finding:** the original wording above said Phase 1 could not begin coding at all until
 the pay-component catalogue and statutory rule source (Section X) were approved. That was too
@@ -1081,6 +1258,30 @@ values):
 - `payslip.generated.v1` is published exactly once per `Payslip` row, with a payload containing
   no amount/pay/tax value — **implemented and verified** by `PayslipIntegrationTest`'s outbox
   assertions (Section Q).
+
+**Added in the Compensation Management revision:**
+- Two `EmployeeCompensation` records with overlapping effective ranges for the same employee
+  cannot both be `ACTIVE` — **implemented and verified** by a conflict-rejection test
+  (`EmployeeCompensationServiceTest`, `CompensationManagementIntegrationTest`).
+- A compensation record already read by a `FINALIZED` run's `PayrollRunLine` cannot be updated —
+  **implemented and verified** by an immutability-rejection test.
+- No endpoint accepts a client-supplied employee identity to read or write that employee's own
+  compensation, pay-component catalogue entry, or statutory profile — **implemented and
+  verified** by an authorization test asserting every such endpoint requires
+  `payroll.process`/`payroll.read.all`, never a self-scoped grant.
+- An `EmployeeStatutoryProfile` with status `NOT_APPLICABLE` never produces a missing-identifier
+  exception regardless of whether an identifier is present — **implemented and verified** by a
+  dedicated "not applicable is never flagged" test.
+- An `EmployeeStatutoryProfile` with status `APPLICABLE`/`PENDING_VERIFICATION` and a blank
+  identifier produces the corresponding `PayrollException` without blocking the employee's
+  `PayrollRunLine` from being written — **implemented and verified**.
+- Resolving a `PayrollException` is idempotent-safe: resolving an already-`RESOLVED` exception is
+  rejected rather than silently re-applied — **implemented and verified**.
+- All pre-existing `PayrollRunLine`/payslip-generation/adjustment-run tests continue to pass
+  unmodified in behavior (two pre-existing tests' *expected exception counts* were updated to
+  include the new, intentionally-additive `MISSING_STATUTORY_PROFILE` exception — not a
+  regression, a documented consequence of the new check) — **verified**, full payroll-service
+  suite green (89/89).
 
 **Added by the Phase 2 revision:**
 - A genuine calculation failure (an ambiguous/invalid compensation state, not a mock) rolls back

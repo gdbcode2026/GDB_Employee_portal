@@ -101,6 +101,41 @@ public class PayrollAuditLog {
                 payslipId, employeeRef, viewerRole, actor, correlationId);
     }
 
+    /** No amount/field value is ever a parameter here - only IDs (decision 14). */
+    public void compensationCreated(UUID compensationId, UUID employeeRef, String actor, UUID correlationId) {
+        log.info("action=compensation.created compensationId={} employeeRef={} actor={} correlationId={}",
+                compensationId, employeeRef, actor, correlationId);
+    }
+
+    public void compensationUpdated(UUID compensationId, UUID employeeRef, String actor, UUID correlationId) {
+        log.info("action=compensation.updated compensationId={} employeeRef={} actor={} correlationId={}",
+                compensationId, employeeRef, actor, correlationId);
+    }
+
+    public void payComponentCreated(UUID payComponentId, String actor, UUID correlationId) {
+        log.info("action=pay_component.created payComponentId={} actor={} correlationId={}", payComponentId, actor, correlationId);
+    }
+
+    public void payComponentUpdated(UUID payComponentId, String actor, UUID correlationId) {
+        log.info("action=pay_component.updated payComponentId={} actor={} correlationId={}", payComponentId, actor, correlationId);
+    }
+
+    /** No UAN/PF/ESI identifier value is ever a parameter here - only IDs (decision 14). */
+    public void statutoryProfileCreated(UUID profileId, UUID employeeRef, String actor, UUID correlationId) {
+        log.info("action=statutory_profile.created profileId={} employeeRef={} actor={} correlationId={}",
+                profileId, employeeRef, actor, correlationId);
+    }
+
+    public void statutoryProfileUpdated(UUID profileId, UUID employeeRef, String actor, UUID correlationId) {
+        log.info("action=statutory_profile.updated profileId={} employeeRef={} actor={} correlationId={}",
+                profileId, employeeRef, actor, correlationId);
+    }
+
+    public void payrollExceptionResolved(UUID exceptionId, UUID runId, UUID employeeRef, String actor, UUID correlationId) {
+        log.info("action=run.payroll_exception_resolved exceptionId={} runId={} employeeRef={} actor={} correlationId={}",
+                exceptionId, runId, employeeRef, actor, correlationId);
+    }
+
     private void record(String action, UUID resourceId, String actor, UUID correlationId, String note) {
         log.info("action={} resourceId={} actor={} correlationId={} note={}", action, resourceId, actor, correlationId, note);
     }

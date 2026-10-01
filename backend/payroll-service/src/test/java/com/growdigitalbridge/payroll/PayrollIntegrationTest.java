@@ -384,7 +384,11 @@ class PayrollIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CALCULATED"))
                 .andExpect(jsonPath("$.lineCount").value(1))
-                .andExpect(jsonPath("$.exceptionCount").value(0));
+                // No EmployeeStatutoryProfile was created for this employee, so the calculation
+                // engine's statutory-profile completeness check (Compensation Management task)
+                // flags exactly one MISSING_STATUTORY_PROFILE exception alongside the line - it
+                // does not skip or alter the line itself.
+                .andExpect(jsonPath("$.exceptionCount").value(1));
 
         List<PayrollRunLine> lines = lineRepository.findByRunId(run.id());
         assertThat(lines).hasSize(1);
@@ -394,6 +398,11 @@ class PayrollIntegrationTest {
         assertThat(line.getTotalEmployerContributions()).isEqualByComparingTo("6000.00");
         assertThat(line.getNetPay()).isEqualByComparingTo("64000.00");
         assertThat(line.getComponentBreakdown()).contains("BASIC_SALARY", "HRA", "PF", "EMPLOYER_PF");
+
+        List<PayrollException> exceptions = exceptionRepository.findByRunId(run.id());
+        assertThat(exceptions).hasSize(1);
+        assertThat(exceptions.get(0).getEmployeeRef()).isEqualTo(employeeRef);
+        assertThat(exceptions.get(0).getReason()).isEqualTo(PayrollExceptionReason.MISSING_STATUTORY_PROFILE);
     }
 
     @Test
@@ -412,12 +421,21 @@ class PayrollIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CALCULATED"))
                 .andExpect(jsonPath("$.lineCount").value(1))
-                .andExpect(jsonPath("$.exceptionCount").value(1));
+                // employeeWithoutCompensation -> NO_EFFECTIVE_COMPENSATION (no line);
+                // employeeWithCompensation -> MISSING_STATUTORY_PROFILE (alongside its own line,
+                // since no EmployeeStatutoryProfile was created for it either).
+                .andExpect(jsonPath("$.exceptionCount").value(2));
 
         List<PayrollException> exceptions = exceptionRepository.findByRunId(run.id());
-        assertThat(exceptions).hasSize(1);
-        assertThat(exceptions.get(0).getEmployeeRef()).isEqualTo(employeeWithoutCompensation);
-        assertThat(exceptions.get(0).getReason()).isEqualTo(PayrollExceptionReason.NO_EFFECTIVE_COMPENSATION);
+        assertThat(exceptions).hasSize(2);
+        assertThat(exceptions).anySatisfy(exception -> {
+            assertThat(exception.getEmployeeRef()).isEqualTo(employeeWithoutCompensation);
+            assertThat(exception.getReason()).isEqualTo(PayrollExceptionReason.NO_EFFECTIVE_COMPENSATION);
+        });
+        assertThat(exceptions).anySatisfy(exception -> {
+            assertThat(exception.getEmployeeRef()).isEqualTo(employeeWithCompensation);
+            assertThat(exception.getReason()).isEqualTo(PayrollExceptionReason.MISSING_STATUTORY_PROFILE);
+        });
     }
 
     @Test
