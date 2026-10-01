@@ -36,22 +36,36 @@ services:
       timeout: 5s
       retries: 12
   minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    # MinIO's own image (minio/minio on Docker Hub, quay.io/minio/minio on Quay) has been
+    # withdrawn from public/anonymous pull on both registries - confirmed directly against each
+    # registry's own token/API responses, not a local Docker or repo issue. zenko/cloudserver is
+    # a real, actively-maintained, publicly pullable, S3-API-compatible server (Scality) used as
+    # the local-dev replacement; the service key stays "minio" only because nothing else in this
+    # compose file or the application connects to it by that Compose-internal name - the app
+    # always reaches this container via the published host port below, never Docker DNS.
+    image: zenko/cloudserver:latest
     environment:
-      MINIO_ROOT_USER: gdb_local
-      MINIO_ROOT_PASSWORD: local-development-only
-    # Private by default: MinIO grants no anonymous/public access to a bucket unless a policy is
-    # explicitly applied, and nothing here ever applies one. The console (9090) is for local
-    # operator visibility only - bound to loopback, like every other service's ports below.
-    command: ["server", "/data", "--console-address", ":9090"]
-    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9090:9090"]
+      SCALITY_ACCESS_KEY_ID: gdb_local
+      SCALITY_SECRET_ACCESS_KEY: local-development-only
+    # Private by default: every CloudServer S3 API call requires a valid SigV4-signed request
+    # (verified directly - an unsigned GET is rejected), and nothing here applies a public/
+    # anonymous bucket policy. CloudServer has no separate admin console (unlike MinIO's 9090).
+    ports: ["127.0.0.1:9000:8000"]
     volumes:
-      - minio-data:/data
+      - object-storage-data:/usr/src/app/localData
+      - object-storage-metadata:/usr/src/app/localMetadata
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      # CloudServer exposes no dedicated health endpoint - every path, including "/", is routed
+      # through its S3 API handler. Verified directly against a running container: once the
+      # server is up, an unsigned GET to "/" reliably returns a well-formed HTTP response (403
+      # AccessDenied), and plain `curl` (without -f) exits 0 for that response - so this checks
+      # that the HTTP listener is actually up and answering, the same signal -f would give for a
+      # 2xx-only API, without wrongly treating a correct 403 as unhealthy.
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://localhost:8000/"]
       interval: 5s
       timeout: 3s
       retries: 20
 volumes:
   postgres-data:
-  minio-data:
+  object-storage-data:
+  object-storage-metadata:
