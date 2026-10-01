@@ -21,4 +21,15 @@ public interface PayrollRunRepository extends JpaRepository<PayrollRun, UUID> {
 
     /** Used to resolve a financial-year YTD (Section Q) from only FINALIZED runs. */
     List<PayrollRun> findByPeriodIdInAndStatus(Collection<UUID> periodIds, PayrollRunStatus status);
+
+    /**
+     * Adjustment-run idempotency guard (Section K item 8): Section K explicitly leaves "any limit
+     * on how many adjustment runs may reference the same original run" PENDING_GDB_APPROVAL, so
+     * this does not forbid a second, later, genuinely-new correction - it only blocks starting a
+     * new one while an earlier adjustment against the same original has not yet reached the
+     * terminal {@code FINALIZED} state (i.e. an accidental double-submission while one is already
+     * in flight), mirroring the spirit of the regular-run uniqueness check without inventing an
+     * absolute "one adjustment ever" business rule nobody has decided.
+     */
+    boolean existsByCorrectsRunIdAndStatusNot(UUID correctsRunId, PayrollRunStatus status);
 }

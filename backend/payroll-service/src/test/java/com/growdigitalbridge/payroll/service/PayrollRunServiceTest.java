@@ -1,5 +1,6 @@
 package com.growdigitalbridge.payroll.service;
 
+import com.growdigitalbridge.payroll.api.dto.PayrollRunDtos;
 import com.growdigitalbridge.payroll.calculation.CalculationResult;
 import com.growdigitalbridge.payroll.calculation.PayrollCalculationEngine;
 import com.growdigitalbridge.payroll.client.EmployeeClient;
@@ -188,5 +189,62 @@ class PayrollRunServiceTest {
         assertThatThrownBy(() -> service().finalizeRun(id, "maker-1", null))
                 .isInstanceOf(AccessDeniedException.class);
         verify(payslipGenerationService, org.mockito.Mockito.never()).generatePayslipsForRun(any(), any(), any());
+    }
+
+    private PayrollRun finalizedRun(String initiator, String approver) {
+        PayrollRun run = approvedRun(initiator, approver);
+        run.finalizeRun(approver, Instant.now());
+        return run;
+    }
+
+    @Test
+    void createAdjustmentRejectsAnOriginalRunThatIsNotFinalized() {
+        PayrollRun original = runInitiatedBy("maker-1");
+        UUID id = original.getId();
+        when(repository.findById(id)).thenReturn(Optional.of(original));
+
+        assertThatThrownBy(() -> service().createAdjustment(id, "maker-2", null))
+                .isInstanceOf(com.growdigitalbridge.payroll.service.exception.InvalidLifecycleTransitionException.class);
+        verify(repository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void createAdjustmentRejectsADuplicateWhileOneIsAlreadyInProgress() {
+        PayrollRun original = finalizedRun("maker-1", "checker-1");
+        UUID id = original.getId();
+        when(repository.findById(id)).thenReturn(Optional.of(original));
+        when(repository.existsByCorrectsRunIdAndStatusNot(id, PayrollRunStatus.FINALIZED)).thenReturn(true);
+
+        assertThatThrownBy(() -> service().createAdjustment(id, "maker-2", null))
+                .isInstanceOf(com.growdigitalbridge.payroll.service.exception.ConflictException.class);
+        verify(repository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void createAdjustmentSucceedsAgainstAFinalizedOriginalRunWithoutMutatingIt() {
+        PayrollRun original = finalizedRun("maker-1", "checker-1");
+        UUID id = original.getId();
+        PayrollRunStatus originalStatusBefore = original.getStatus();
+        when(repository.findById(id)).thenReturn(Optional.of(original));
+        when(repository.existsByCorrectsRunIdAndStatusNot(id, PayrollRunStatus.FINALIZED)).thenReturn(false);
+        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(UUID.randomUUID(), UUID.randomUUID()));
+
+        PayrollRunDtos.Response response = service().createAdjustment(id, "maker-2", null);
+
+        org.mockito.ArgumentCaptor<PayrollRun> savedCaptor = org.mockito.ArgumentCaptor.forClass(PayrollRun.class);
+        verify(repository).save(savedCaptor.capture());
+        PayrollRun savedAdjustment = savedCaptor.getValue();
+
+        org.assertj.core.api.Assertions.assertThat(savedAdjustment).isNotSameAs(original);
+        org.assertj.core.api.Assertions.assertThat(savedAdjustment.getRunType()).isEqualTo(com.growdigitalbridge.payroll.domain.PayrollRunType.ADJUSTMENT);
+        org.assertj.core.api.Assertions.assertThat(savedAdjustment.getCorrectsRunId()).isEqualTo(id);
+        org.assertj.core.api.Assertions.assertThat(savedAdjustment.getPeriodId()).isEqualTo(original.getPeriodId());
+        org.assertj.core.api.Assertions.assertThat(savedAdjustment.getStatus()).isEqualTo(PayrollRunStatus.DRAFT);
+        org.assertj.core.api.Assertions.assertThat(response.runType()).isEqualTo(com.growdigitalbridge.payroll.domain.PayrollRunType.ADJUSTMENT);
+        org.assertj.core.api.Assertions.assertThat(response.correctsRunId()).isEqualTo(id);
+
+        // The original run itself was never mutated or re-saved.
+        org.assertj.core.api.Assertions.assertThat(original.getStatus()).isEqualTo(originalStatusBefore);
+        verify(auditLog).adjustmentRunCreated(savedAdjustment.getId(), id, "maker-2", null);
     }
 }

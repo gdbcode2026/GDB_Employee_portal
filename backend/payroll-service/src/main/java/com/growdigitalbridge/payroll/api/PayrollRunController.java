@@ -69,4 +69,10 @@ class PayrollRunController {
     PayrollRunDtos.Response finalizeRun(@PathVariable UUID id) {
         return service.finalizeRun(id, CurrentActor.resolve(), CurrentCorrelation.resolve());
     }
+
+    @PostMapping("/{id}/adjustments")
+    ResponseEntity<PayrollRunDtos.Response> createAdjustment(@PathVariable UUID id) {
+        PayrollRunDtos.Response created = service.createAdjustment(id, CurrentActor.resolve(), CurrentCorrelation.resolve());
+        return ResponseEntity.created(URI.create("/api/v1/payroll/runs/" + created.id())).body(created);
+    }
 }

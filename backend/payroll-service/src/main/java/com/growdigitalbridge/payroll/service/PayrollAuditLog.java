@@ -30,6 +30,11 @@ public class PayrollAuditLog {
         record("run.created", runId, actor, correlationId, null);
     }
 
+    public void adjustmentRunCreated(UUID adjustmentRunId, UUID correctsRunId, String actor, UUID correlationId) {
+        log.info("action=run.adjustment_created runId={} correctsRunId={} actor={} correlationId={}",
+                adjustmentRunId, correctsRunId, actor, correlationId);
+    }
+
     public void processingStarted(UUID runId, String actor, UUID correlationId) {
         record("run.processing_started", runId, actor, correlationId, null);
     }

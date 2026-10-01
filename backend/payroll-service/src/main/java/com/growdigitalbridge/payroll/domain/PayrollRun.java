@@ -102,6 +102,27 @@ public class PayrollRun {
     }
 
     /**
+     * Section K: an adjustment/correction run against an already-{@code FINALIZED} original run.
+     * Always starts at {@code DRAFT} and goes through the identical lifecycle as a regular run
+     * (Section D) - nothing about {@code startProcessing}/{@code approve}/{@code finalizeRun}
+     * below branches on {@code runType}. {@code periodId} is always the original run's own
+     * period (an adjustment corrects that period's payroll, it does not open a new one).
+     */
+    public PayrollRun(UUID id, UUID periodId, UUID correctsRunId, Set<UUID> employeeSnapshot, String actor, Instant now) {
+        this.id = id;
+        this.periodId = periodId;
+        this.runType = PayrollRunType.ADJUSTMENT;
+        this.correctsRunId = correctsRunId;
+        this.status = PayrollRunStatus.DRAFT;
+        this.employeeSnapshot = new LinkedHashSet<>(employeeSnapshot);
+        this.initiatedBy = actor;
+        this.createdAt = now;
+        this.createdBy = actor;
+        this.updatedAt = now;
+        this.updatedBy = actor;
+    }
+
+    /**
      * DRAFT/REJECTED/CALCULATION_FAILED -&gt; PROCESSING. Committed independently of whether the
      * calculation that follows succeeds, so a run visibly shows "in progress" for its duration.
      * The caller (service layer) is responsible for verifying the current status permits this

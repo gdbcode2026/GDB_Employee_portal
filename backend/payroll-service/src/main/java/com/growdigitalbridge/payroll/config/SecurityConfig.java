@@ -46,11 +46,13 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
  * payroll action plausibly need to see which periods exist - a minimum decision, not an
  * additional grant beyond what a payroll-authorized identity already holds.
  *
- * {@code payroll.process} is the maker side (create period, create/process a run);
- * {@code payroll.approve} is the checker side (approve/reject/finalize a run) - see
- * PAYROLL_REQUIREMENTS.md Section J. Self-approval prevention (the same identity cannot approve/
- * reject/finalize a run it initiated) is enforced in {@code PayrollRunService}, not here, since
- * it depends on the specific run's recorded {@code initiatedBy}, not just the caller's grants.
+ * {@code payroll.process} is the maker side (create period, create/process a run, initiate an
+ * adjustment run against a FINALIZED one - Section K); {@code payroll.approve} is the checker
+ * side (approve/reject/finalize a run) - see PAYROLL_REQUIREMENTS.md Section J. Self-approval
+ * prevention (the same identity cannot approve/reject/finalize a run it initiated) is enforced
+ * in {@code PayrollRunService}, not here, since it depends on the specific run's recorded
+ * {@code initiatedBy}, not just the caller's grants - this applies identically to an adjustment
+ * run, since nothing in that service branches on {@code runType}.
  */
 @Configuration
 public class SecurityConfig {
@@ -81,6 +83,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/payroll/runs/*/approve").hasAuthority("payroll.approve")
                         .requestMatchers(HttpMethod.POST, "/api/v1/payroll/runs/*/reject").hasAuthority("payroll.approve")
                         .requestMatchers(HttpMethod.POST, "/api/v1/payroll/runs/*/finalize").hasAuthority("payroll.approve")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payroll/runs/*/adjustments").hasAuthority("payroll.process")
                         .requestMatchers(HttpMethod.GET, "/api/v1/payroll/runs", "/api/v1/payroll/runs/*").hasAuthority("payroll.read.all")
                         .requestMatchers(HttpMethod.GET, "/api/v1/payroll/payslips/me")
                         .hasAnyAuthority("payslip.read.self", "payslip.read.all")

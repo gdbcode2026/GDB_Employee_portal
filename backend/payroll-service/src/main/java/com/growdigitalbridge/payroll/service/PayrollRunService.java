@@ -114,6 +114,37 @@ public class PayrollRunService {
         return toResponse(run);
     }
 
+    /**
+     * Section K: creates a new {@code ADJUSTMENT} run against an already-{@code FINALIZED}
+     * {@code originalRunId}, which is never mutated here - only read for its period/status.
+     * Reuses the exact same technical employee-snapshot mechanism as a regular run (item 4): no
+     * new eligibility rule is invented, and no accounting/netting policy is applied - whatever
+     * corrected compensation is effective for a snapshot employee is what {@link
+     * com.growdigitalbridge.payroll.calculation.PayrollCalculationEngine} (called unchanged, via
+     * {@link #process}) will resolve, producing a positive or negative line exactly as Section
+     * K's signed-adjustment-lines model describes.
+     */
+    @Transactional
+    public PayrollRunDtos.Response createAdjustment(UUID originalRunId, String actor, UUID correlationId) {
+        PayrollRun original = find(originalRunId);
+        if (original.getStatus() != PayrollRunStatus.FINALIZED) {
+            throw new InvalidLifecycleTransitionException(
+                    "An adjustment run can only be created against a FINALIZED original run; payroll run "
+                            + originalRunId + " is " + original.getStatus() + ".");
+        }
+        if (repository.existsByCorrectsRunIdAndStatusNot(originalRunId, PayrollRunStatus.FINALIZED)) {
+            throw new ConflictException(
+                    "An adjustment run against payroll run " + originalRunId + " is already in progress.");
+        }
+
+        Instant now = Instant.now();
+        PayrollRun adjustment = new PayrollRun(UUID.randomUUID(), original.getPeriodId(), original.getId(),
+                employeeClient.resolveActiveEmployeeRefs(), actor, now);
+        repository.save(adjustment);
+        auditLog.adjustmentRunCreated(adjustment.getId(), original.getId(), actor, correlationId);
+        return toResponse(adjustment);
+    }
+
     @Transactional(readOnly = true)
     public PayrollRunDtos.Response getById(UUID id, String actor, UUID correlationId) {
         PayrollRun run = find(id);
