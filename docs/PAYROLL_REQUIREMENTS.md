@@ -7,9 +7,11 @@ contradict, `docs/DEVELOPMENT_ROADMAP.md`, `docs/architecture/MICROSERVICES.md`,
 `docs/architecture/COMMUNICATION.md`, `docs/ARCHITECTURE_REVIEW.md`, `docs/DECISIONS.md`,
 `docs/workflows/WORKFLOWS.md`, and `docs/PAYROLL_REPORTING_DECISIONS.md`.
 
-**Status: Phase 1 (Foundation) and Phase 2 (Calculation Core) are implemented; Phase 3 onward
-(approval/finalization endpoints beyond the technical maker-checker gate, payslip generation, and
-every other sensitive business function) remains gated on GDB approval of the items in Section X.**
+**Status: Phase 1 (Foundation), Phase 2 (Calculation Core), Phase 3 (Approval/Finalization),
+Phase 4 (Payslip Generation), and Adjustment Runs (Section K) are all implemented at the
+*technical* level. Every sensitive business function - real salary/tax/statutory values, the
+actual pay-component catalogue, the adjustment/netting accounting policy, and every other item in
+Section X - remains gated on GDB approval.**
 A `payroll-service` module implements `PayrollPeriod`/`PayrollRun` lifecycle (Section D, now
 including `PROCESSING`/`CALCULATION_FAILED`), RBAC (`payroll.process`/`payroll.approve`/
 `payroll.read.all`), audit logging, idempotency, **and** a real calculation pipeline: effective-dated
@@ -219,6 +221,51 @@ the no-effective-compensation business question, the real proration/LOP formula,
 adjustment/netting accounting policy - this revision resolves none of them, only their *technical*
 surfacing (exceptions, pluggable policy points).
 
+### Revision: Payroll Payslip Generation implemented
+
+Payroll's payslip generation and employee payslip access (Sections L/M/N/O) are now implemented,
+finishing the pipeline Phase 2's own `PayrollRunLine` results already fed into:
+
+- **`Payslip`/`PayslipGenerationFailure` entities** (Section E/F) - one immutable `Payslip` per
+  `(run_id, employee_ref)`, generated only on finalization; a per-employee generation failure is
+  recorded separately without blocking other employees or the run's own `FINALIZED` status.
+- **PDF generation** (Section M) - every documented field (branding, employee identity,
+  earnings/deductions/employer-contribution breakdown, gross/net, amount-in-words, YTD, tax field,
+  period, generated timestamp) rendered from the real `PayrollRunLine`/`PayrollPeriod` data; no
+  statutory/tax value is computed, only displayed as "not configured" where no real rule exists.
+- **Document Service integration** (Section N/U) - `PayslipGenerationService` calls the
+  already-implemented workload-upload contract (`createWorkloadUpload` → upload real PDF bytes →
+  `completeUpload`), storing only the resulting `document_ref`; Payroll never stores a payslip
+  binary itself.
+- **`payslip.generated.v1`** (Section Q) - published once per `Payslip` row via the existing
+  transactional outbox, payload limited to IDs/timestamp only.
+- **Self-service access** (Section B/O) - `GET /payroll/payslips/me` (filterable by period/
+  financial year, paginated), `GET /payroll/payslips/{id}`, `GET /payroll/payslips/{id}/download`,
+  gated by `payslip.read.self`/`payslip.read.all` with server-side ownership resolution (never a
+  client-supplied identity).
+- **Finalization retry** - re-invoking `POST /payroll/runs/{id}/finalize` on an already-`FINALIZED`
+  run is the documented retry mechanism: no re-transition, no duplicate `payroll.processed.v1`,
+  only still-missing payslips are (re)attempted.
+
+**Nothing else changed.** No real tax/statutory/PF/ESI/TDS value, no payment/disbursement
+provider, and no Reporting integration were implemented. Every item in Section X remains exactly
+as PENDING_GDB_APPROVAL as before this revision. A known, narrow limitation: Document Service's
+own object storage tracks only an opaque reference with no object-existence lookup by checksum, so
+a crash between document creation and `Payslip` row persistence has no automatic reconciliation
+path today - it is recorded as a `PayslipGenerationFailure` rather than silently lost, but manual
+reconciliation may be required in that specific window.
+
+### Revision: Payroll Adjustment Runs implemented
+
+`POST /payroll/runs/{id}/adjustments` (Section K) is now implemented, gated by `payroll.process`.
+See Section K above for the full technical detail (original-run validation and immutability,
+`corrects_run_id`, reuse of the identical calculation/approval/finalization/payslip pipeline,
+in-flight-only idempotency, independent adjustment payslips, and the documented limitation around
+correcting historical compensation). **Nothing else changed.** The accounting/netting treatment
+for adjustment runs remains exactly as PENDING_GDB_APPROVAL as before this revision - this pass
+resolves none of it, only the technical mechanics of creating and processing the adjustment run
+itself.
+
 ---
 
 ## A. Payroll scope
@@ -289,8 +336,8 @@ DRAFT/CALCULATED/PENDING_APPROVAL → CANCELLED (before finalization only, not y
   (technical transition only; still gated on the business questions in Section X for who may act).
 - **APPROVED** — decision recorded; run may now be finalized. **Implemented.**
 - **FINALIZED** — terminal, immutable per decision 8. Payslips are generated and become visible
-  to employees only at this point. **Transition implemented; payslip generation itself is not
-  (Phase 4).**
+  to employees only at this point. **Implemented**, including payslip generation (Phase 4) - a
+  finalized run's own row and `PayrollRunLine`/`Payslip` rows are never updated in place again.
 - **REJECTED** — sent back for correction; a rejected run never reaches FINALIZED. **Implemented.**
 - **CANCELLED** — abandoned before finalization; no payslips are ever generated. **Not
   implemented** - modeled in the status enum for schema completeness only; no endpoint reaches it.
@@ -316,7 +363,8 @@ entities decisions 4–9 require to be actionable:
 | `PayrollException` | Recorded instead of a line for an employee with no effective compensation for the period (reason code, employee ref) | **Implemented** (Phase 2) - new entity, not in the original specification; the underlying business question (block vs. silently skip the run) remains PENDING (Section X) |
 | `PayrollAttendanceInput` | Payroll's own snapshot of one `attendance.finalized.v1` event (employee ref, work date, attendance ref) | **Implemented** (Phase 2) - new entity |
 | `PayrollLeaveInput` | Payroll's own snapshot of one `leave.approved.v1` event (employee ref, leave request ref, approved units) | **Implemented** (Phase 2) - new entity; Leave's event carries no date range, so this snapshot is not period-filtered (a data-availability gap, not an invented assumption) |
-| `Payslip` | One finalized, generated payslip per employee per run: employee ref, run ref, period ref, document ref, generated timestamp | **Not implemented** (Phase 4) |
+| `Payslip` | One finalized, generated payslip per employee per run: employee ref, run ref, period ref, document ref, generated timestamp | **Implemented** (Phase 4) - unique per `(run_id, employee_ref)`; an adjustment run's payslip is an independent row, never a mutation of the original run's payslip |
+| `PayslipGenerationFailure` | Recorded when payslip generation fails for one employee within a finalized run (technical retry-tracking entity, not in the original specification) | **Implemented** (Phase 4) - upserted per `(run_id, employee_ref)`; mirrors `PayrollException`'s precedent of surfacing a technical problem without blocking the run or inventing a business resolution |
 
 ## F. Database tables and important fields
 
@@ -341,7 +389,13 @@ cross-service references, `*_id` for local foreign keys):
 - **payroll_runs**: `id`, `period_id FK`, `run_type` (`REGULAR`/`ADJUSTMENT`), `corrects_run_id`
   (nullable, self-referencing FK, populated only for `ADJUSTMENT` runs), `status` (now including
   `PROCESSING`/`CALCULATION_FAILED`, Section D), `initiated_by`, `approved_by`, `approved_at`,
-  `finalized_at`. **Implemented.**
+  `finalized_at`. **Implemented**, including `ADJUSTMENT` run creation (Section K): a new
+  `ADJUSTMENT` run may only be created against a `FINALIZED` original (its own `periodId`,
+  `corrects_run_id = original.id`); multiple adjustment runs may target the same original over
+  time (no limit is imposed - Section K leaves that business question open), but only one
+  adjustment per original may be *in flight* (not yet `FINALIZED`) at once, enforced by
+  `existsByCorrectsRunIdAndStatusNot(correctsRunId, FINALIZED)` - a technical duplicate-submission
+  guard, not an invented "one adjustment ever" accounting rule.
 - **payroll_run_lines**: `id`, `run_id FK`, `employee_ref`, `gross_pay decimal(14,2)`,
   `total_deductions decimal(14,2)`, `total_employer_contributions decimal(14,2)` (added during
   Phase 2 - Section M lists employer contributions as a required payslip field, so this is
@@ -359,7 +413,12 @@ cross-service references, `*_id` for local foreign keys):
   `approved_units`, `source_event_id`, `received_at`. Unique per `leave_request_ref`.
   **Implemented.**
 - **payslips**: `id`, `employee_ref`, `run_id FK`, `period_id FK`, `document_ref`,
-  `generated_at`. **Not implemented** (Phase 4).
+  `generated_at`. Unique per `(run_id, employee_ref)` - an adjustment run's payslip is a separate
+  row referencing its own `run_id`, never an update to the original run's row. **Implemented**
+  (Phase 4).
+- **payslip_generation_failures** (new, Phase 4, not in the original specification): `id`,
+  `run_id FK`, `employee_ref`, `failure_type`, `failure_message`, `occurred_at`. Upserted per
+  `(run_id, employee_ref)` on retry, mirroring `payroll_exceptions`' precedent. **Implemented.**
 - **outbox_events** / **processed_events**: identical shape to every other service in this
   platform (transactional outbox; inbox for the two consumed events in Section Q). **Implemented.**
 
@@ -406,9 +465,15 @@ calculation pipeline for a `PayrollRun`:
    catalogue content and pending deduction/statutory rules (Section X) are not implemented.
 6. Compute `gross_pay`, `total_deductions`, `total_employer_contributions`, `net_pay` per
    employee, persisted as an immutable `PayrollRunLine` (structured JSON breakdown). **Implemented.**
-7. On finalization only (Section J), generate one `Payslip` + PDF per `PayrollRunLine`, and
-   publish `payslip.generated.v1` per payslip (Section Q). **Not implemented** (Phase 4) - `PAYROLL_PROCESSED`
-   (aggregate, no amounts) is emitted on finalize (Phase 1), but no payslip/PDF exists yet.
+7. On finalization only (Section J), generate one `Payslip` + PDF per `PayrollRunLine`, upload it
+   through Document Service's workload-upload contract (Section N/U), and publish
+   `payslip.generated.v1` per payslip (Section Q). **Implemented** (Phase 4) - this step runs
+   identically for a `REGULAR` or an `ADJUSTMENT` run (nothing branches on `run_type`), so a
+   finalized adjustment run gets its own independent `Payslip`/PDF/event, never a mutation of the
+   original run's payslip. A per-employee failure is recorded in `PayslipGenerationFailure`
+   without blocking other employees or re-opening the now-`FINALIZED` run; re-invoking
+   `POST /payroll/runs/{id}/finalize` on an already-finalized run safely retries only the
+   still-missing payslips (no re-mutation, no duplicate event).
 
 Reprocessing (before `FINALIZED`) is idempotent: existing lines/exceptions for the run are
 deleted and recreated, never duplicated, enforced by a database uniqueness constraint on
@@ -504,11 +569,10 @@ introduces a second, distinct permission:
   outcomes of the single approval decision, mirroring how Leave Service's own decision endpoint
   uses one permission tier for both outcomes.
 
-**`payroll.approve` does not exist in `RBAC.md` today.** Adding it is a required, minimal
-addition to the existing permission catalogue — not a new capability invented from nothing, but
-the same `<domain>.<verb>` naming shape every other permission in `RBAC.md` already follows
-(e.g. `policy.publish`, `asset.assign`). It is tracked as a required cross-document change in
-Section X, not applied to `RBAC.md` by this document.
+**`payroll.approve` is now defined in `RBAC.md`'s permission catalogue** (added by the
+"source-of-truth documentation synchronization" revision below) — the same `<domain>.<verb>`
+naming shape every other permission in `RBAC.md` already follows (e.g. `policy.publish`,
+`asset.assign`), not a new capability invented from nothing.
 
 **Self-approval prevention (maker-checker enforcement):** holding `payroll.approve` is
 necessary but not sufficient. The service layer must additionally reject an approval/finalize
@@ -536,6 +600,37 @@ adjustment run goes through the identical lifecycle (Section D) including its ow
 (gated by `payroll.process`/`payroll.approve` exactly like a regular run, Section J), and
 produces its own `PayrollRunLine`/`Payslip` records — it never mutates the original run's rows.
 
+**Status: implemented.** `POST /payroll/runs/{id}/adjustments` (`payroll.process`) creates the
+adjustment run:
+
+- **Original-run validation** — the path's `{id}` must resolve to an existing `PayrollRun` whose
+  status is exactly `FINALIZED`; any other status is rejected (`422`). The original run is only
+  ever *read* (its `id`/`period_id`) — no field on it is ever written, verified by a test
+  asserting the original row is byte-for-byte unchanged (status, `approved_by`, `finalized_at`)
+  after an adjustment is created, processed, and finalized against it.
+- **New run** — `run_type = ADJUSTMENT`, `corrects_run_id = <original.id>`, `period_id =
+  <original.period_id>` (an adjustment corrects that period's payroll, it does not open a new
+  one), starting at `DRAFT` with the same technical employee-snapshot mechanism as a regular run
+  (`EmployeeClient.resolveActiveEmployeeRefs()` - no new eligibility rule is invented for which
+  employees an adjustment covers).
+- **Identical downstream pipeline** — from `DRAFT` onward an adjustment run is processed,
+  approved, and finalized through the *exact same, unmodified* code as a regular run: the same
+  `PayrollCalculationEngine` (Section H), the same maker-checker/self-approval-prevention rule
+  (Section J - the identity that created the adjustment may not approve/reject/finalize it,
+  exactly as for a regular run), and the same finalize-time payslip generation (Section H step 7).
+  Nothing in that pipeline branches on `run_type`.
+- **Idempotency** — repeated adjustment creation does not create unintended duplicates. Section
+  K's own business question ("any limit on how many adjustment runs may reference the same
+  original") remains open, so the guard implemented is narrower than a hard one-per-original
+  limit: a new adjustment is rejected (`409`) while an earlier adjustment against the *same*
+  original has not yet reached `FINALIZED`; once one reaches `FINALIZED`, a later, genuinely new
+  adjustment against the same original may be created freely. This mirrors the spirit of the
+  regular-run uniqueness check (Section T) without inventing a business rule nobody has decided.
+- **Payslip** — on finalization, the adjustment run generates its own `Payslip` (its own
+  `document_ref`, its own PDF, uploaded through the same Document Service contract) and publishes
+  its own `payslip.generated.v1` for it - an independent record, connected to the original only by
+  `corrects_run_id` on the run itself. The original run's own `Payslip` row is never touched.
+
 ### Signed adjustment lines (technical model)
 
 To represent both additional pay and clawback without inventing an accounting policy, an
@@ -554,6 +649,21 @@ single adjustment run may correct multiple original runs, and any limit on how m
 runs may reference the same original run. Until GDB supplies this, an adjustment run's
 `PayrollRunLine`/`Payslip` are additional records alongside the original's, connected only by
 `corrects_run_id` — no automatic netting or display consolidation is implemented.
+
+**Known limitation: correcting historical compensation.** Compensation resolution (Section G) is
+date-based — `CompensationResolver` selects the `EmployeeCompensation` effective as of the
+*period's own start date* — and an adjustment run always shares its original's `period_id`
+(above). This means that if nothing about an employee's compensation records has changed, an
+adjustment run's calculation reproduces the *same* figures as the original, since it resolves the
+identical compensation as of the identical date; the engine does not infer what "should" have
+been different. Producing an actually-different, corrected figure requires the underlying
+`EmployeeCompensation`/`CompensationComponent` data itself to be corrected first - and because the
+calculation engine already treats two compensation records whose effective ranges overlap for the
+same employee/date as an ambiguous, hard-failing state (Section H, "calculation failure/
+rollback"), simply adding a second, overlapping "correction" record is not a safe way to do this
+today. A true retroactive compensation correction mechanism (e.g. superseding or end-dating a
+historical record without creating an overlap) is not implemented and is not part of this phase's
+scope - it is a data-correction capability, not an adjustment-run concern, and remains open.
 
 ## L. Payslip functional requirements
 
@@ -671,8 +781,9 @@ documented in `docs/api/API.md`'s Documents section and cross-referenced from
 authorized by comparing the acting identity to the document's own recorded creator) — reusing
 the unchanged checksum-match scan/quarantine gate, with no second upload or scan mechanism.
 Idempotent per `(ownerRef, checksum)`: a duplicate submission is rejected with `409 Conflict`.
-Payroll's own Phase 4 (Section Y) can now integrate against this endpoint once Payroll Service
-itself is built — no Payroll code was written by this pass.
+Payroll's own Phase 4 (Section Y) now integrates against this endpoint: `PayslipGenerationService`
+calls `createWorkloadUpload` then uploads the real PDF bytes through the content endpoint, then
+`completeUpload`, for both regular and adjustment runs alike.
 
 ## O. APIs
 
@@ -858,9 +969,10 @@ Carried forward from `docs/PAYROLL_REPORTING_DECISIONS.md`, restated as
   N/U). **Done.**
 
 No further cross-document or cross-service prerequisite blocks Payroll's own implementation
-phases (Section Y) beyond the business decisions above. Payroll Service Phase 1 (Foundation) is
-implemented. Payroll calculation and remaining sensitive business functionality are still gated
-pending GDB approvals.
+phases (Section Y) beyond the business decisions above. Payroll Service Phases 1–4 (Foundation,
+Calculation Core, Approval/Finalization, Payslip Generation) and Adjustment Runs (Section K) are
+all implemented at the technical level. Real payroll calculation values and every remaining
+sensitive business function are still gated pending GDB approvals.
 
 ## Y. Implementation phases
 
@@ -874,19 +986,24 @@ pending GDB approvals.
    proration formula and pay component catalogue *content* to be supplied (Section X); this phase
    does not wait for that to exist in code, only for those values to become meaningful.
 3. **Approval/finalization** — Section J/K endpoints and state transitions, including the
-   `payroll.approve` permission and self-approval prevention. The `RBAC.md` addition is now in
-   place (Section X); this phase is otherwise unblocked at the documentation level.
+   `payroll.approve` permission and self-approval prevention. **Implemented** - `/approve`,
+   `/reject`, `/finalize`, and `POST /payroll/runs/{id}/adjustments` (Section K, creating an
+   `ADJUSTMENT` run against a `FINALIZED` original) all exist and are exercised by
+   `PayrollIntegrationTest`/`PayrollAdjustmentIntegrationTest`.
 4. **Payslip generation** — PDF content (Section M), Document Service integration (Section N/U)
-   — and self-service access (Section B). Document Service's `POST /documents/workload-uploads`
-   is now implemented and tested (Section X); this phase is otherwise unblocked at the
-   cross-service level.
+   — and self-service access (Section B). **Implemented** - `PayslipGenerationService` generates
+   one `Payslip`/PDF per `PayrollRunLine` on finalization (for both regular and adjustment runs),
+   uploads it through Document Service's workload-upload contract, and `GET /payroll/payslips/me`,
+   `/{id}`, `/{id}/download` serve it back self-only (or `payslip.read.all`), per
+   `PayslipIntegrationTest`.
 5. **Messaging** — `payroll.processed.v1` and `payslip.generated.v1` producers,
    `attendance.finalized.v1`/`leave.approved.v1` consumers (Section Q), platform wiring (gateway
    route, database init, per the established per-service pattern; next available port per
-   existing convention). The `COMMUNICATION.md` addition is now in place (Section X); this phase
-   is otherwise unblocked at the documentation level.
+   existing convention). **Implemented** - both producers and both consumers are live against a
+   real broker, verified by `PayrollMessagingIntegrationTest`/`PayslipIntegrationTest`.
 6. **Audit/security hardening** — Section R/S controls, verified before any real payroll data
-   is processed.
+   is processed. Every state transition (including adjustment creation) is audit-logged
+   (`PayrollAuditLog`); the real-data hardening pass itself remains pending real payroll content.
 
 **Revised finding:** the original wording above said Phase 1 could not begin coding at all until
 the pay-component catalogue and statutory rule source (Section X) were approved. That was too
@@ -911,6 +1028,18 @@ Section X's pay-component catalogue content, statutory rates, and proration form
 (approval/finalization) is technically unblocked in the same sense: its permission/state-machine
 mechanics are already implemented (Section D/J), pending only the same business content.
 
+**Third revised finding (Phases 3–4 and Adjustment Runs):** the same reasoning extends through
+Phase 4 and the adjustment-run flow. None of approval/finalization, payslip generation, or
+adjustment-run creation required any Section X business content to build - they needed only the
+*shape* Sections D/J/K/M/N already specified (the state machine, the maker-checker permission
+split, the payslip content fields, the Document Service contract), and all of it has therefore
+been implemented using only already-calculated `PayrollRunLine` data and the already-approved
+Document Service workload-upload contract. What genuinely still cannot happen is unchanged from
+the First/Second revised findings: no run anywhere - regular or adjustment - produces a
+*meaningful* payroll number for a real employee without Section X's pay-component catalogue
+content, statutory rates, and proration formula, and the adjustment/netting accounting policy
+(Section K) remains exactly as undecided as before this revision.
+
 ## Z. Acceptance criteria
 
 For the *technical* specification locked in this document (independent of the pending business
@@ -920,12 +1049,13 @@ values):
 - No code path updates a `FINALIZED` run's `PayrollRunLine`/`Payslip` rows (decision 8) —
   verified by the absence of any such repository/service method.
 - A correction is provable only via a new `PayrollRun` with `run_type = ADJUSTMENT` and
-  `corrects_run_id` set (decision 9) — verified by schema constraint plus service logic.
+  `corrects_run_id` set (decision 9) — **implemented and verified** by
+  `PayrollAdjustmentIntegrationTest` (Section K).
 - `GET /payroll/payslips/*` never returns another employee's payslip to a self-scoped caller
-  (decision 10) — verified by an access-guard test mirroring every other service's self-scope
-  test.
-- The generated PDF contains every field listed in Section M — verified by a payslip-content
-  test once PDF generation exists.
+  (decision 10) — **implemented and verified** by `PayslipIntegrationTest`, mirroring every other
+  service's self-scope test pattern.
+- The generated PDF contains every field listed in Section M — **implemented and verified** by
+  `PayslipPdfGeneratorTest`.
 - No payslip is ever stored as a Payroll-owned binary; every payslip has a `document_ref`
   (decision 13) — verified by schema (no binary column exists on `payslips`).
 - Every state transition and every payslip view/download produces an audit entry (decision 14)
@@ -949,8 +1079,8 @@ values):
   the run referenced by `corrects_run_id` — verified by a test asserting the original run's rows
   are byte-for-byte unchanged after an adjustment run completes (Section K).
 - `payslip.generated.v1` is published exactly once per `Payslip` row, with a payload containing
-  no amount/pay/tax value — verified by a messaging test mirroring Asset/Expense/Workflow's own
-  event-content assertions (Section Q). **Not yet verifiable - `Payslip` does not exist (Phase 4).**
+  no amount/pay/tax value — **implemented and verified** by `PayslipIntegrationTest`'s outbox
+  assertions (Section Q).
 
 **Added by the Phase 2 revision:**
 - A genuine calculation failure (an ambiguous/invalid compensation state, not a mock) rolls back
@@ -965,6 +1095,38 @@ values):
 - `attendance.finalized.v1`/`leave.approved.v1` are consumed idempotently against a real broker,
   and a non-`FINALIZED` status on the attendance event type is ignored — verified by messaging
   integration tests mirroring the platform's existing event-idempotency test pattern.
+
+**Added by the Payslip Generation revision:**
+- Finalizing an `APPROVED` run generates exactly one `Payslip` per `PayrollRunLine`, uploads the
+  real PDF bytes through Document Service's workload-upload contract, and publishes one
+  `payslip.generated.v1` per payslip, with no salary/tax value in the payload — verified by
+  `PayslipIntegrationTest`.
+  - A per-employee generation failure is recorded in `PayslipGenerationFailure` without blocking
+    other employees or affecting the already-`FINALIZED` run's status — verified by
+    `PayslipGenerationServiceTest`.
+  - Re-invoking `POST /payroll/runs/{id}/finalize` on an already-`FINALIZED` run is idempotent: no
+    re-transition, no duplicate `payroll.processed.v1`, and only still-missing payslips are
+    retried — verified by `PayrollIntegrationTest`/`PayslipIntegrationTest`.
+- Self-only payslip access (`GET /payroll/payslips/me`, `/{id}`, `/{id}/download`) never returns
+  another employee's payslip to a `payslip.read.self`-only caller, while `payslip.read.all`
+  authorizes any payslip regardless of self — verified by `PayslipIntegrationTest`.
+
+**Added by the Adjustment Run revision:**
+- `POST /payroll/runs/{id}/adjustments` creates an `ADJUSTMENT` run only against a `FINALIZED`
+  original, rejecting any other status, and never mutates the original run's row — verified by
+  `PayrollAdjustmentIntegrationTest` and a unit test asserting the original object's state is
+  unchanged after creation.
+- A second adjustment against the same original is rejected while an earlier one has not yet
+  reached `FINALIZED`, and is accepted once it has — verified by
+  `PayrollAdjustmentIntegrationTest`.
+- Self-approval prevention applies identically to an adjustment run (the identity that created it
+  may not approve/reject/finalize it) — verified by `PayrollAdjustmentIntegrationTest`.
+- An adjustment run's calculation reuses `PayrollCalculationEngine` unchanged, including signed
+  (negative) component amounts flowing through to `gross_pay`/`net_pay` with no sign-flipping or
+  netting — verified by `PayrollAdjustmentIntegrationTest`.
+- An adjustment run's finalization produces its own independent `Payslip` and `payslip.
+  generated.v1`, leaving the original run's `Payslip` row byte-for-byte unchanged — verified by
+  `PayrollAdjustmentIntegrationTest`.
 
 Full sign-off additionally requires every item in Section X to be resolved — this document
 alone does not make Payroll "ready to build" in the business sense, only in the technical sense
