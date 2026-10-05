@@ -14,10 +14,13 @@ import org.springframework.stereotype.Component;
  * component is data on the component, never a branch in this class (the same configuration-driven
  * pattern {@code FixedAmountStrategy} already established).
  *
- * <p>Jurisdiction-aware resolution (Professional Tax, item 5) is the one place this class reads
- * the component's code directly: only a {@code PROFESSIONAL_TAX}-coded component looks up the
- * employee's {@code EmployeeStatutoryProfile.ptJurisdiction} to select the matching jurisdiction's
- * rule version; every other component resolves a jurisdiction-less (national) rule.
+ * <p>Jurisdiction-aware resolution (Professional Tax, item 5) and tax-regime-aware resolution
+ * (TDS, India Payroll V1 architecture-extension task) are the two places this class reads the
+ * component's code directly: only a {@code PROFESSIONAL_TAX}-coded component looks up the
+ * employee's {@code EmployeeStatutoryProfile.ptJurisdiction}, and only a {@code TDS}-coded
+ * component looks up {@code EmployeeStatutoryProfile.taxRegime}, each to select the matching
+ * version; every other component resolves a jurisdiction-less, regime-independent (national)
+ * rule.
  *
  * <p>Never throws out to the API layer - {@code PayrollCalculationEngine} catches both {@link
  * MissingStatutoryRuleException} and {@link StatutoryRuleNotApplicableException} per component
@@ -28,6 +31,7 @@ import org.springframework.stereotype.Component;
 public class StatutoryRuleCalculationStrategy implements StatutoryCalculator, TaxCalculator {
 
     private static final String PROFESSIONAL_TAX_COMPONENT_CODE = "PROFESSIONAL_TAX";
+    private static final String TDS_COMPONENT_CODE = "TDS";
 
     private final StatutoryRuleResolver resolver;
     private final StatutoryRuleAmountCalculator amountCalculator;
@@ -44,7 +48,8 @@ public class StatutoryRuleCalculationStrategy implements StatutoryCalculator, Ta
     public BigDecimal computeAmount(ComponentCalculationContext context) {
         String code = context.component().getCalculationStrategyCode();
         String jurisdiction = jurisdictionFor(context);
-        StatutoryRule rule = resolver.resolveActive(code, jurisdiction, context.period().getStartDate())
+        String taxRegime = taxRegimeFor(context);
+        StatutoryRule rule = resolver.resolveActive(code, jurisdiction, taxRegime, context.period().getStartDate())
                 .orElseThrow(() -> new MissingStatutoryRuleException(code));
         if (!amountCalculator.isEligible(rule, context)) {
             throw new StatutoryRuleNotApplicableException(code);
@@ -58,6 +63,15 @@ public class StatutoryRuleCalculationStrategy implements StatutoryCalculator, Ta
         }
         return statutoryProfileRepository.findByEmployeeRef(context.compensation().getEmployeeRef())
                 .map(EmployeeStatutoryProfile::getPtJurisdiction)
+                .orElse(null);
+    }
+
+    private String taxRegimeFor(ComponentCalculationContext context) {
+        if (!TDS_COMPONENT_CODE.equals(context.component().getComponentCode())) {
+            return null;
+        }
+        return statutoryProfileRepository.findByEmployeeRef(context.compensation().getEmployeeRef())
+                .map(EmployeeStatutoryProfile::getTaxRegime)
                 .orElse(null);
     }
 }

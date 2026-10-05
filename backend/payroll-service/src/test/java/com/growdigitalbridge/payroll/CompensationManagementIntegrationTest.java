@@ -317,7 +317,7 @@ class CompensationManagementIntegrationTest {
         var request = new StatutoryProfileDtos.UpsertRequest(
                 StatutoryApplicabilityStatus.APPLICABLE, "100123456789", "MEMBER-1", LocalDate.of(2031, 1, 1), null,
                 StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null,
-                StatutoryApplicabilityStatus.APPLICABLE, "Karnataka", LocalDate.of(2031, 1, 1), null);
+                StatutoryApplicabilityStatus.APPLICABLE, "Karnataka", LocalDate.of(2031, 1, 1), null, null);
 
         mockMvc.perform(put("/api/v1/payroll/statutory-profiles/" + employeeRef)
                         .with(jwt().authorities(PROCESS))
@@ -339,7 +339,7 @@ class CompensationManagementIntegrationTest {
         var request = new StatutoryProfileDtos.UpsertRequest(
                 StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null, null,
                 StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null,
-                StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null);
+                StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null, null);
         upsertStatutoryProfile(employeeRef, request);
 
         int year = Year.now().getValue() + 5;
@@ -359,7 +359,7 @@ class CompensationManagementIntegrationTest {
         var request = new StatutoryProfileDtos.UpsertRequest(
                 StatutoryApplicabilityStatus.APPLICABLE, null, null, null, null,
                 StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null,
-                StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null);
+                StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null, null);
         upsertStatutoryProfile(employeeRef, request);
 
         int year = Year.now().getValue() + 5;
@@ -384,7 +384,7 @@ class CompensationManagementIntegrationTest {
         var request = new StatutoryProfileDtos.UpsertRequest(
                 StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null, null,
                 StatutoryApplicabilityStatus.PENDING_VERIFICATION, null, null, null,
-                StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null);
+                StatutoryApplicabilityStatus.NOT_APPLICABLE, null, null, null, null);
         upsertStatutoryProfile(employeeRef, request);
 
         int year = Year.now().getValue() + 5;

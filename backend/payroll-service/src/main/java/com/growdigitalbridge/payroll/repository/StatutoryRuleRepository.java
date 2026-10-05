@@ -23,8 +23,10 @@ public interface StatutoryRuleRepository extends JpaRepository<StatutoryRule, UU
      * Resolves "the {@code ACTIVE} version of this rule family covering this date" (Rule Engine
      * task, item 7/9) - the same effective-dated, status-gated resolution pattern
      * {@code EmployeeCompensationRepository.findEffectiveForEmployee} already establishes.
-     * {@code jurisdiction} is matched by equality, or by both being {@code null} for a
-     * non-jurisdictional rule (PF/ESI/TDS). Returns a {@link List} rather than throwing on
+     * {@code jurisdiction}/{@code taxRegime} are each matched by equality, or by both being
+     * {@code null} for a non-jurisdictional/regime-independent rule (PF/ESI typically have
+     * neither; Professional Tax sets {@code jurisdiction}; TDS may set {@code taxRegime} - India
+     * Payroll V1 architecture-extension task). Returns a {@link List} rather than throwing on
      * ambiguity (unlike that precedent) because an ambiguous/missing rule here must never fail an
      * employee's entire line - the caller treats anything other than exactly one match as "no
      * usable rule" and raises a {@link com.growdigitalbridge.payroll.domain.PayrollException}
@@ -34,10 +36,11 @@ public interface StatutoryRuleRepository extends JpaRepository<StatutoryRule, UU
             select r from StatutoryRule r
             where r.code = :code
               and ((:jurisdiction is null and r.jurisdiction is null) or r.jurisdiction = :jurisdiction)
+              and ((:taxRegime is null and r.taxRegime is null) or r.taxRegime = :taxRegime)
               and r.status = com.growdigitalbridge.payroll.domain.StatutoryRuleStatus.ACTIVE
               and r.effectiveFrom <= :date
               and (r.effectiveTo is null or r.effectiveTo >= :date)
             """)
     List<StatutoryRule> findActiveCovering(@Param("code") String code, @Param("jurisdiction") String jurisdiction,
-                                            @Param("date") LocalDate date);
+                                            @Param("taxRegime") String taxRegime, @Param("date") LocalDate date);
 }

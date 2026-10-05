@@ -24,8 +24,12 @@ import org.hibernate.type.SqlTypes;
  * for the lifetime of a {@code code} family (enforced by {@code StatutoryRuleService}, not here) -
  * only {@code effectiveFrom}/{@code effectiveTo}/{@code calculationType}/{@code parameters} vary
  * between versions. {@code jurisdiction} is {@code null} for a national/non-jurisdictional rule
- * (PF/ESI/TDS) and a state/jurisdiction code for a jurisdiction-aware rule (Professional Tax,
- * item 5).
+ * (PF/ESI) and a state/jurisdiction code for a jurisdiction-aware rule (Professional Tax, item 5).
+ * {@code taxRegime} (India Payroll V1 architecture-extension task) is the analogous dimension for
+ * a tax-regime-aware rule (TDS): {@code null} for a regime-independent rule, or a free-form
+ * regime identifier otherwise - this codebase never decides what regime identifiers exist, only
+ * that one *can* be configured per rule version. {@code jurisdiction} and {@code taxRegime} each
+ * get their own independent version-1-onward sequence under the same {@code code}.
  *
  * <p>{@code parameters} is a JSON-encoded {@link StatutoryRuleParameters} - the generic
  * calculation shape ({@code calculationType} says how to interpret it), never executable code or
@@ -50,6 +54,9 @@ public class StatutoryRule {
 
     @Column(length = 64)
     private String jurisdiction;
+
+    @Column(name = "tax_regime", length = 32)
+    private String taxRegime;
 
     @Column(name = "rule_version", nullable = false)
     private int ruleVersion;
@@ -90,13 +97,14 @@ public class StatutoryRule {
     protected StatutoryRule() { }
 
     /** Always created as {@link StatutoryRuleStatus#DRAFT} - {@code activate()} is the only way to make a version live. */
-    public StatutoryRule(UUID id, String code, StatutoryRuleType ruleType, String jurisdiction, int ruleVersion,
+    public StatutoryRule(UUID id, String code, StatutoryRuleType ruleType, String jurisdiction, String taxRegime, int ruleVersion,
                           LocalDate effectiveFrom, LocalDate effectiveTo, StatutoryRuleCalculationType calculationType,
                           String parameters, String actor, Instant now) {
         this.id = id;
         this.code = code;
         this.ruleType = ruleType;
         this.jurisdiction = jurisdiction;
+        this.taxRegime = taxRegime;
         this.ruleVersion = ruleVersion;
         this.effectiveFrom = effectiveFrom;
         this.effectiveTo = effectiveTo;
@@ -136,6 +144,7 @@ public class StatutoryRule {
     public String getCode() { return code; }
     public StatutoryRuleType getRuleType() { return ruleType; }
     public String getJurisdiction() { return jurisdiction; }
+    public String getTaxRegime() { return taxRegime; }
     public int getRuleVersion() { return ruleVersion; }
     public LocalDate getEffectiveFrom() { return effectiveFrom; }
     public LocalDate getEffectiveTo() { return effectiveTo; }

@@ -44,20 +44,20 @@ class StatutoryRuleServiceTest {
     }
 
     private StatutoryRuleDtos.ParametersRequest fixedAmountParams(String amount) {
-        return new StatutoryRuleDtos.ParametersRequest(new BigDecimal(amount), null, null, null, null, null);
+        return new StatutoryRuleDtos.ParametersRequest(new BigDecimal(amount), null, null, null, null, null, null);
     }
 
     private StatutoryRuleDtos.CreateRequest createRequest(String code, StatutoryRuleType type, String jurisdiction,
                                                             LocalDate from, LocalDate to) {
-        return new StatutoryRuleDtos.CreateRequest(code, type, jurisdiction, from, to,
+        return new StatutoryRuleDtos.CreateRequest(code, type, jurisdiction, null, from, to,
                 StatutoryRuleCalculationType.FIXED_AMOUNT, fixedAmountParams("100.00"));
     }
 
     private StatutoryRule existingRule(String code, StatutoryRuleType type, String jurisdiction, int ruleVersion,
                                         LocalDate from, LocalDate to, com.growdigitalbridge.payroll.domain.StatutoryRuleStatus status) {
-        StatutoryRule rule = new StatutoryRule(UUID.randomUUID(), code, type, jurisdiction, ruleVersion, from, to,
+        StatutoryRule rule = new StatutoryRule(UUID.randomUUID(), code, type, jurisdiction, null, ruleVersion, from, to,
                 StatutoryRuleCalculationType.FIXED_AMOUNT, amountCalculator.encode(
-                        new com.growdigitalbridge.payroll.domain.StatutoryRuleParameters(new BigDecimal("100.00"), null, null, null, null, null)),
+                        new com.growdigitalbridge.payroll.domain.StatutoryRuleParameters(new BigDecimal("100.00"), null, null, null, null, null, null)),
                 "hr-1", Instant.now());
         if (status == com.growdigitalbridge.payroll.domain.StatutoryRuleStatus.ACTIVE) {
             rule.activate("hr-1", Instant.now());
@@ -140,30 +140,139 @@ class StatutoryRuleServiceTest {
 
     @Test
     void createRejectsAFixedAmountRuleWithNoAmount() {
-        var request = new StatutoryRuleDtos.CreateRequest("TEST_PF", StatutoryRuleType.PF, null,
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PF", StatutoryRuleType.PF, null, null,
                 LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.FIXED_AMOUNT,
-                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null));
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, null));
 
         assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
     }
 
     @Test
     void createRejectsAPercentageRuleWithNoPercentage() {
-        var request = new StatutoryRuleDtos.CreateRequest("TEST_ESI", StatutoryRuleType.ESI, null,
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_ESI", StatutoryRuleType.ESI, null, null,
                 LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.PERCENTAGE,
-                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null));
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, null));
 
         assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
     }
 
     @Test
     void createRejectsAThresholdRuleWithMinWageGreaterThanMaxWage() {
-        var request = new StatutoryRuleDtos.CreateRequest("TEST_PF", StatutoryRuleType.PF, null,
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PF", StatutoryRuleType.PF, null, null,
                 LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.THRESHOLD_BASED,
                 new StatutoryRuleDtos.ParametersRequest(null, new BigDecimal("10"), null,
-                        new BigDecimal("30000"), new BigDecimal("15000"), null));
+                        new BigDecimal("30000"), new BigDecimal("15000"), null, null));
 
         assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
+    }
+
+    @Test
+    void createRejectsSlabBasedRuleWithNoBrackets() {
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT", StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, null));
+
+        assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
+    }
+
+    @Test
+    void createRejectsABracketWithBothFixedAmountAndPercentageSet() {
+        var brackets = List.of(
+                new StatutoryRuleDtos.BracketRequest(1, new BigDecimal("0"), null, new BigDecimal("100"), new BigDecimal("10")));
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT", StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+
+        assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
+    }
+
+    @Test
+    void createRejectsABracketWithNeitherFixedAmountNorPercentageSet() {
+        var brackets = List.of(
+                new StatutoryRuleDtos.BracketRequest(1, new BigDecimal("0"), null, null, null));
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT", StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+
+        assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
+    }
+
+    @Test
+    void createRejectsDuplicateBracketOrders() {
+        var brackets = List.of(
+                new StatutoryRuleDtos.BracketRequest(1, new BigDecimal("0"), new BigDecimal("100"), new BigDecimal("10"), null),
+                new StatutoryRuleDtos.BracketRequest(1, new BigDecimal("100"), null, new BigDecimal("20"), null));
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT", StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+
+        assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
+    }
+
+    @Test
+    void createRejectsANonLastBracketWithAnOpenEndedUpperBound() {
+        var brackets = List.of(
+                new StatutoryRuleDtos.BracketRequest(1, new BigDecimal("0"), null, new BigDecimal("10"), null),
+                new StatutoryRuleDtos.BracketRequest(2, new BigDecimal("100"), null, new BigDecimal("20"), null));
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT", StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+
+        assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
+    }
+
+    @Test
+    void createRejectsOverlappingBrackets() {
+        var brackets = List.of(
+                new StatutoryRuleDtos.BracketRequest(1, new BigDecimal("0"), new BigDecimal("100"), new BigDecimal("10"), null),
+                new StatutoryRuleDtos.BracketRequest(2, new BigDecimal("50"), null, new BigDecimal("20"), null));
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT", StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+
+        assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
+    }
+
+    @Test
+    void createRejectsBracketsWithAGapBetweenThem() {
+        var brackets = List.of(
+                new StatutoryRuleDtos.BracketRequest(1, new BigDecimal("0"), new BigDecimal("100"), new BigDecimal("10"), null),
+                new StatutoryRuleDtos.BracketRequest(2, new BigDecimal("150"), null, new BigDecimal("20"), null));
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT", StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+
+        assertThatThrownBy(() -> service().create(request, "hr-1", null)).isInstanceOf(InvalidRequestException.class);
+    }
+
+    @Test
+    void createAcceptsAValidContiguousBracketSequenceForSlabBased() {
+        when(repository.findByCodeOrderByRuleVersionDesc("TEST_PT")).thenReturn(List.of());
+        var brackets = List.of(
+                new StatutoryRuleDtos.BracketRequest(1, new BigDecimal("0"), new BigDecimal("21000"), new BigDecimal("0"), null),
+                new StatutoryRuleDtos.BracketRequest(2, new BigDecimal("21000"), new BigDecimal("30000"), new BigDecimal("180"), null),
+                new StatutoryRuleDtos.BracketRequest(3, new BigDecimal("30000"), null, new BigDecimal("425"), null));
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT", StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+
+        assertThatCode(() -> service().create(request, "hr-1", null)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void createAcceptsAZeroFixedAmountBracketAsALegitimateNilSlab() {
+        // A bracket with fixedAmount=0 is a legitimate "Nil" slab (e.g. Professional Tax's
+        // below-threshold bracket) and must be accepted - this guards that it is NOT rejected by
+        // the exactly-one-of-fixedAmount-or-percentage check merely because the value is zero.
+        when(repository.findByCodeOrderByRuleVersionDesc("TEST_PT")).thenReturn(List.of());
+        var brackets = List.of(
+                new StatutoryRuleDtos.BracketRequest(1, new BigDecimal("0"), new BigDecimal("21000"), new BigDecimal("0"), null),
+                new StatutoryRuleDtos.BracketRequest(2, new BigDecimal("21000"), null, new BigDecimal("180"), null));
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT", StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+
+        assertThatCode(() -> service().create(request, "hr-1", null)).doesNotThrowAnyException();
     }
 
     @Test

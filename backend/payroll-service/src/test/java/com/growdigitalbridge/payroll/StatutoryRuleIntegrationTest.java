@@ -112,7 +112,7 @@ class StatutoryRuleIntegrationTest {
         String code = "TEST_MISMATCH_" + UUID.randomUUID();
         createRule(code, StatutoryRuleType.PF, null, LocalDate.of(2031, 1, 1), null, fixedAmount("500.00"));
 
-        var request = new StatutoryRuleDtos.CreateRequest(code, StatutoryRuleType.ESI, null,
+        var request = new StatutoryRuleDtos.CreateRequest(code, StatutoryRuleType.ESI, null, null,
                 LocalDate.of(2031, 7, 1), null, StatutoryRuleCalculationType.FIXED_AMOUNT, fixedAmount("500.00"));
         mockMvc.perform(post("/api/v1/payroll/statutory-rules")
                         .with(jwt().authorities(PROCESS))
@@ -123,7 +123,7 @@ class StatutoryRuleIntegrationTest {
 
     @Test
     void creatingARuleWithInvalidEffectiveDatesIsRejected() throws Exception {
-        var request = new StatutoryRuleDtos.CreateRequest("TEST_BAD_DATES_" + UUID.randomUUID(), StatutoryRuleType.PF, null,
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_BAD_DATES_" + UUID.randomUUID(), StatutoryRuleType.PF, null, null,
                 LocalDate.of(2031, 6, 1), LocalDate.of(2031, 1, 1), StatutoryRuleCalculationType.FIXED_AMOUNT, fixedAmount("500.00"));
         mockMvc.perform(post("/api/v1/payroll/statutory-rules")
                         .with(jwt().authorities(PROCESS))
@@ -211,7 +211,7 @@ class StatutoryRuleIntegrationTest {
 
     @Test
     void creatingARuleRequiresPayrollProcess() throws Exception {
-        var request = new StatutoryRuleDtos.CreateRequest("TEST_SEC_" + UUID.randomUUID(), StatutoryRuleType.PF, null,
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_SEC_" + UUID.randomUUID(), StatutoryRuleType.PF, null, null,
                 LocalDate.of(2031, 1, 1), null, StatutoryRuleCalculationType.FIXED_AMOUNT, fixedAmount("500.00"));
         mockMvc.perform(post("/api/v1/payroll/statutory-rules")
                         .with(jwt().authorities(READ_ALL))
@@ -256,7 +256,7 @@ class StatutoryRuleIntegrationTest {
     void percentageRuleComputesAPercentageOfGrossEarnings() throws Exception {
         String code = "TEST_PF_PCT_" + UUID.randomUUID();
         StatutoryRuleDtos.Response rule = createRule(code, StatutoryRuleType.PF, null, LocalDate.of(2000, 1, 1), null,
-                new StatutoryRuleDtos.ParametersRequest(null, new BigDecimal("10"), null, null, null, null));
+                new StatutoryRuleDtos.ParametersRequest(null, new BigDecimal("10"), null, null, null, null, null));
         activateRule(rule.id());
 
         UUID employeeRef = UUID.randomUUID();
@@ -278,7 +278,7 @@ class StatutoryRuleIntegrationTest {
     void thresholdBasedRuleBelowMinWageProducesStatutoryRuleNotApplicableExceptionWithoutBlockingTheLine() throws Exception {
         String code = "TEST_PF_THRESHOLD_" + UUID.randomUUID();
         StatutoryRuleDtos.Response rule = createRule(code, StatutoryRuleType.PF, null, LocalDate.of(2000, 1, 1), null,
-                new StatutoryRuleDtos.ParametersRequest(null, new BigDecimal("12"), null, new BigDecimal("25000.00"), null, null));
+                new StatutoryRuleDtos.ParametersRequest(null, new BigDecimal("12"), null, new BigDecimal("25000.00"), null, null, null));
         activateRule(rule.id());
 
         UUID employeeRef = UUID.randomUUID();
@@ -377,7 +377,7 @@ class StatutoryRuleIntegrationTest {
         upsertStatutoryProfile(employeeRef, new StatutoryProfileDtos.UpsertRequest(
                 StatutoryApplicabilityStatus.APPLICABLE, "UAN1", "MEM1", LocalDate.of(2000, 1, 1), null,
                 StatutoryApplicabilityStatus.APPLICABLE, "ESI1", LocalDate.of(2000, 1, 1), null,
-                StatutoryApplicabilityStatus.APPLICABLE, "Karnataka", LocalDate.of(2000, 1, 1), null));
+                StatutoryApplicabilityStatus.APPLICABLE, "Karnataka", LocalDate.of(2000, 1, 1), null, null));
 
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 8, 1),
@@ -443,6 +443,105 @@ class StatutoryRuleIntegrationTest {
                 .isEqualByComparingTo("200.00");
     }
 
+    // --- Architecture extension: SLAB_BASED / PROGRESSIVE_TAX / tax-regime-aware resolution ---
+
+    @Test
+    void slabBasedProfessionalTaxRuleAppliesTheSingleMatchingBracketsFixedAmount() throws Exception {
+        String code = "TEST_PT_SLAB_" + UUID.randomUUID();
+        var brackets = List.of(
+                bracket(1, "0", "21000", "0", null),
+                bracket(2, "21000", "30000", "180", null),
+                bracket(3, "30000", null, "425", null));
+        StatutoryRuleDtos.Response rule = createRule(code, StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null,
+                LocalDate.of(2000, 1, 1), null, StatutoryRuleCalculationType.SLAB_BASED,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+        activateRule(rule.id());
+
+        UUID employeeRef = UUID.randomUUID();
+        fullyApplicableStatutoryProfile(employeeRef);
+        int year = Year.now().getValue() + 10;
+        createCompensation(employeeRef, LocalDate.of(year, 11, 1),
+                List.of(earning("BASIC_SALARY", "25000.00"), deductionWithRule("PROFESSIONAL_TAX", code)));
+        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        UUID periodId = createPeriod(year, 11);
+        PayrollRunDtos.Response run = createRun(periodId);
+        processRun(run.id());
+
+        PayrollRunLine line = lineRepository.findByRunIdAndEmployeeRef(run.id(), employeeRef).orElseThrow();
+        // 25000 falls in bracket 2 (21000-30000) -> flat fee 180, never summed with bracket 1.
+        assertThat(componentFinalAmount(line, "PROFESSIONAL_TAX")).isEqualByComparingTo("180");
+        assertThat(exceptionsFor(run.id(), employeeRef)).isEmpty();
+    }
+
+    @Test
+    void progressiveTaxRuleAccumulatesMarginalRatesAcrossBracketsForTheNewTaxRegime() throws Exception {
+        String code = "TEST_TDS_PROGRESSIVE_" + UUID.randomUUID();
+        var brackets = List.of(
+                bracket(1, "0", "400000", null, "0"),
+                bracket(2, "400000", "800000", null, "5"),
+                bracket(3, "800000", null, null, "10"));
+        StatutoryRuleDtos.Response rule = createRule(code, StatutoryRuleType.TDS, null, "NEW_REGIME",
+                LocalDate.of(2000, 1, 1), null, StatutoryRuleCalculationType.PROGRESSIVE_TAX,
+                new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+        activateRule(rule.id());
+
+        UUID employeeRef = UUID.randomUUID();
+        fullyApplicableStatutoryProfile(employeeRef, "NEW_REGIME");
+        int year = Year.now().getValue() + 10;
+        createCompensation(employeeRef, LocalDate.of(year, 12, 1),
+                List.of(earning("BASIC_SALARY", "900000.00"), deductionWithRule("TDS", code)));
+        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        UUID periodId = createPeriod(year, 12);
+        PayrollRunDtos.Response run = createRun(periodId);
+        processRun(run.id());
+
+        PayrollRunLine line = lineRepository.findByRunIdAndEmployeeRef(run.id(), employeeRef).orElseThrow();
+        // 0% of 400000 + 5% of next 400000 (20000) + 10% of the remaining 100000 (10000) = 30000.00.
+        assertThat(componentFinalAmount(line, "TDS")).isEqualByComparingTo("30000.00");
+        assertThat(exceptionsFor(run.id(), employeeRef)).isEmpty();
+    }
+
+    @Test
+    void aTdsRuleForOneRegimeIsNeverResolvedForAnEmployeeElectingAnotherRegime() throws Exception {
+        String code = "TEST_TDS_REGIME_" + UUID.randomUUID();
+        StatutoryRuleDtos.Response newRegimeRule = createRule(code, StatutoryRuleType.TDS, null, "NEW_REGIME",
+                LocalDate.of(2000, 1, 1), null, StatutoryRuleCalculationType.FIXED_AMOUNT, fixedAmount("1000.00"));
+        activateRule(newRegimeRule.id());
+
+        UUID employeeRef = UUID.randomUUID();
+        // This employee elected the OLD regime - no rule exists under that regime for this code.
+        fullyApplicableStatutoryProfile(employeeRef, "OLD_REGIME");
+        // A dedicated year offset, used by no other test in this class, so no (year, month)
+        // period collision is possible regardless of test execution order.
+        int year = Year.now().getValue() + 12;
+        createCompensation(employeeRef, LocalDate.of(year, 1, 1),
+                List.of(earning("BASIC_SALARY", "50000.00"), deductionWithRule("TDS", code)));
+        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        UUID periodId = createPeriod(year, 1);
+        PayrollRunDtos.Response run = createRun(periodId);
+        processRun(run.id());
+
+        PayrollRunLine line = lineRepository.findByRunIdAndEmployeeRef(run.id(), employeeRef).orElseThrow();
+        assertThat(componentFinalAmount(line, "TDS")).isEqualByComparingTo("0.00");
+        assertThat(exceptionsFor(run.id(), employeeRef)).extracting(PayrollException::getReason)
+                .contains(PayrollExceptionReason.TAX_CONFIGURATION_REQUIRED);
+    }
+
+    @Test
+    void creatingASlabBasedRuleWithOverlappingBracketsIsRejected() throws Exception {
+        var brackets = List.of(
+                bracket(1, "0", "100", "10", null),
+                bracket(2, "50", null, "20", null));
+        var request = new StatutoryRuleDtos.CreateRequest("TEST_PT_OVERLAP_" + UUID.randomUUID(),
+                StatutoryRuleType.PROFESSIONAL_TAX, "Karnataka", null, LocalDate.of(2031, 1, 1), null,
+                StatutoryRuleCalculationType.SLAB_BASED, new StatutoryRuleDtos.ParametersRequest(null, null, null, null, null, null, brackets));
+        mockMvc.perform(post("/api/v1/payroll/statutory-rules")
+                        .with(jwt().authorities(PROCESS))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
     // --- Regression ---
 
     @Test
@@ -466,17 +565,29 @@ class StatutoryRuleIntegrationTest {
     // --- shared helpers ---
 
     private StatutoryRuleDtos.ParametersRequest fixedAmount(String amount) {
-        return new StatutoryRuleDtos.ParametersRequest(new BigDecimal(amount), null, null, null, null, null);
+        return new StatutoryRuleDtos.ParametersRequest(new BigDecimal(amount), null, null, null, null, null, null);
+    }
+
+    private StatutoryRuleDtos.BracketRequest bracket(int order, String lowerBound, String upperBound, String fixedAmount, String percentage) {
+        return new StatutoryRuleDtos.BracketRequest(order, new BigDecimal(lowerBound),
+                upperBound == null ? null : new BigDecimal(upperBound),
+                fixedAmount == null ? null : new BigDecimal(fixedAmount),
+                percentage == null ? null : new BigDecimal(percentage));
     }
 
     private StatutoryRuleDtos.Response createRule(String code, StatutoryRuleType type, String jurisdiction,
                                                     LocalDate from, LocalDate to, StatutoryRuleDtos.ParametersRequest params) throws Exception {
         boolean isThresholdBased = params.minWage() != null || params.maxWage() != null || params.cap() != null;
-        var request = new StatutoryRuleDtos.CreateRequest(code, type, jurisdiction, from, to,
-                isThresholdBased ? StatutoryRuleCalculationType.THRESHOLD_BASED
-                        : params.percentage() != null ? StatutoryRuleCalculationType.PERCENTAGE
-                        : StatutoryRuleCalculationType.FIXED_AMOUNT,
-                params);
+        StatutoryRuleCalculationType calculationType = isThresholdBased ? StatutoryRuleCalculationType.THRESHOLD_BASED
+                : params.percentage() != null ? StatutoryRuleCalculationType.PERCENTAGE
+                : StatutoryRuleCalculationType.FIXED_AMOUNT;
+        return createRule(code, type, jurisdiction, null, from, to, calculationType, params);
+    }
+
+    private StatutoryRuleDtos.Response createRule(String code, StatutoryRuleType type, String jurisdiction, String taxRegime,
+                                                    LocalDate from, LocalDate to, StatutoryRuleCalculationType calculationType,
+                                                    StatutoryRuleDtos.ParametersRequest params) throws Exception {
+        var request = new StatutoryRuleDtos.CreateRequest(code, type, jurisdiction, taxRegime, from, to, calculationType, params);
         MvcResult result = mockMvc.perform(post("/api/v1/payroll/statutory-rules")
                         .with(jwt().authorities(PROCESS))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -526,10 +637,14 @@ class StatutoryRuleIntegrationTest {
 
     /** APPLICABLE with every identifier present - keeps Compensation Management's own exceptions out of these rule-engine-focused tests. */
     private void fullyApplicableStatutoryProfile(UUID employeeRef) throws Exception {
+        fullyApplicableStatutoryProfile(employeeRef, null);
+    }
+
+    private void fullyApplicableStatutoryProfile(UUID employeeRef, String taxRegime) throws Exception {
         upsertStatutoryProfile(employeeRef, new StatutoryProfileDtos.UpsertRequest(
                 StatutoryApplicabilityStatus.APPLICABLE, "100123456789", "MEMBER-1", LocalDate.of(2000, 1, 1), null,
                 StatutoryApplicabilityStatus.APPLICABLE, "ESI-MEMBER-1", LocalDate.of(2000, 1, 1), null,
-                StatutoryApplicabilityStatus.APPLICABLE, "Karnataka", LocalDate.of(2000, 1, 1), null));
+                StatutoryApplicabilityStatus.APPLICABLE, "Karnataka", LocalDate.of(2000, 1, 1), null, taxRegime));
     }
 
     private UUID createPeriod(int year, int month) throws Exception {

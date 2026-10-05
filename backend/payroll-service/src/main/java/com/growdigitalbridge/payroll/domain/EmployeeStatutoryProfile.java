@@ -23,6 +23,12 @@ import java.util.UUID;
  * effective-dated history like {@link EmployeeCompensation}; the per-scheme {@code *EffectiveFrom}/
  * {@code *EffectiveTo} fields record when that specific scheme's applicability began/ended, not a
  * revision history of the row itself.
+ *
+ * <p>{@code taxRegime} (India Payroll V1 architecture-extension task) is a free-form, employee-
+ * elected tax-regime identifier (e.g. which of the new/old regimes the employee has chosen) used
+ * only to resolve a tax-regime-aware {@code StatutoryRule} version for a {@code TDS}-coded
+ * component - this codebase never decides what regime identifiers exist or defaults one, per the
+ * explicit instruction not to decide which tax regime GDB uses.
  */
 @Entity
 @Table(name = "employee_statutory_profiles")
@@ -76,6 +82,9 @@ public class EmployeeStatutoryProfile {
     @Column(name = "pt_effective_to")
     private LocalDate ptEffectiveTo;
 
+    @Column(name = "tax_regime", length = 32)
+    private String taxRegime;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -100,6 +109,7 @@ public class EmployeeStatutoryProfile {
                                      LocalDate esiEffectiveFrom, LocalDate esiEffectiveTo,
                                      StatutoryApplicabilityStatus ptStatus, String ptJurisdiction,
                                      LocalDate ptEffectiveFrom, LocalDate ptEffectiveTo,
+                                     String taxRegime,
                                      String actor, Instant now) {
         this.id = id;
         this.employeeRef = employeeRef;
@@ -116,6 +126,7 @@ public class EmployeeStatutoryProfile {
         this.ptJurisdiction = ptJurisdiction;
         this.ptEffectiveFrom = ptEffectiveFrom;
         this.ptEffectiveTo = ptEffectiveTo;
+        this.taxRegime = taxRegime;
         this.createdAt = now;
         this.createdBy = actor;
         this.updatedAt = now;
@@ -129,6 +140,7 @@ public class EmployeeStatutoryProfile {
                         LocalDate esiEffectiveFrom, LocalDate esiEffectiveTo,
                         StatutoryApplicabilityStatus ptStatus, String ptJurisdiction,
                         LocalDate ptEffectiveFrom, LocalDate ptEffectiveTo,
+                        String taxRegime,
                         String actor, Instant now) {
         this.pfStatus = pfStatus;
         this.pfUan = pfUan;
@@ -143,6 +155,7 @@ public class EmployeeStatutoryProfile {
         this.ptJurisdiction = ptJurisdiction;
         this.ptEffectiveFrom = ptEffectiveFrom;
         this.ptEffectiveTo = ptEffectiveTo;
+        this.taxRegime = taxRegime;
         this.updatedBy = actor;
         this.updatedAt = now;
     }
@@ -162,6 +175,7 @@ public class EmployeeStatutoryProfile {
     public String getPtJurisdiction() { return ptJurisdiction; }
     public LocalDate getPtEffectiveFrom() { return ptEffectiveFrom; }
     public LocalDate getPtEffectiveTo() { return ptEffectiveTo; }
+    public String getTaxRegime() { return taxRegime; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public long getVersion() { return version; }

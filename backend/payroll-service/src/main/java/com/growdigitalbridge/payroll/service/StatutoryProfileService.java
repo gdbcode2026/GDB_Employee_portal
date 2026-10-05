@@ -37,12 +37,12 @@ public class StatutoryProfileService {
                     request.pfStatus(), request.pfUan(), request.pfMemberId(), request.pfEffectiveFrom(), request.pfEffectiveTo(),
                     request.esiStatus(), request.esiIdentifier(), request.esiEffectiveFrom(), request.esiEffectiveTo(),
                     request.ptStatus(), request.ptJurisdiction(), request.ptEffectiveFrom(), request.ptEffectiveTo(),
-                    actor, now);
+                    request.taxRegime(), actor, now);
         } else {
             profile.update(request.pfStatus(), request.pfUan(), request.pfMemberId(), request.pfEffectiveFrom(), request.pfEffectiveTo(),
                     request.esiStatus(), request.esiIdentifier(), request.esiEffectiveFrom(), request.esiEffectiveTo(),
                     request.ptStatus(), request.ptJurisdiction(), request.ptEffectiveFrom(), request.ptEffectiveTo(),
-                    actor, now);
+                    request.taxRegime(), actor, now);
         }
         repository.save(profile);
 
@@ -67,6 +67,6 @@ public class StatutoryProfileService {
                 profile.getPfStatus(), profile.getPfUan(), profile.getPfMemberId(), profile.getPfEffectiveFrom(), profile.getPfEffectiveTo(),
                 profile.getEsiStatus(), profile.getEsiIdentifier(), profile.getEsiEffectiveFrom(), profile.getEsiEffectiveTo(),
                 profile.getPtStatus(), profile.getPtJurisdiction(), profile.getPtEffectiveFrom(), profile.getPtEffectiveTo(),
-                profile.getCreatedAt(), profile.getUpdatedAt());
+                profile.getTaxRegime(), profile.getCreatedAt(), profile.getUpdatedAt());
     }
 }

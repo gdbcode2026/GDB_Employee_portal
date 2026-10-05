@@ -5,9 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.growdigitalbridge.payroll.domain.CompensationComponent;
 import com.growdigitalbridge.payroll.domain.CompensationComponentType;
 import com.growdigitalbridge.payroll.domain.StatutoryRule;
+import com.growdigitalbridge.payroll.domain.StatutoryRuleBracket;
 import com.growdigitalbridge.payroll.domain.StatutoryRuleParameters;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Comparator;
+import java.util.List;
 import org.springframework.stereotype.Component;
 
 /**
@@ -51,6 +54,8 @@ public class StatutoryRuleAmountCalculator {
             case FIXED_AMOUNT -> params.amount() == null ? BigDecimal.ZERO : params.amount();
             case PERCENTAGE -> percentageOf(wageBasis(params, context), params.percentage());
             case THRESHOLD_BASED -> thresholdBased(params, context);
+            case SLAB_BASED -> slabBased(params, context);
+            case PROGRESSIVE_TAX -> progressiveTax(params, context);
         };
     }
 
@@ -59,6 +64,66 @@ public class StatutoryRuleAmountCalculator {
         BigDecimal cappedBasis = params.maxWage() != null && basis.compareTo(params.maxWage()) > 0 ? params.maxWage() : basis;
         BigDecimal amount = percentageOf(cappedBasis, params.percentage());
         return params.cap() != null && amount.compareTo(params.cap()) > 0 ? params.cap() : amount;
+    }
+
+    /**
+     * {@code SLAB_BASED}: exactly ONE bracket applies - the one whose {@code [lowerBound,
+     * upperBound)} range contains the wage basis - contributing that bracket's own {@code
+     * fixedAmount} or {@code percentage} of the (whole) basis. Never cumulative; fits a flat-fee
+     * slab tax such as Professional Tax. A basis below the first bracket's {@code lowerBound}
+     * matches no bracket and correctly contributes zero - this is not an error, since {@code
+     * StatutoryRuleService} already guarantees brackets are contiguous from write time, so "no
+     * match" only happens below the very first bracket's floor.
+     */
+    private BigDecimal slabBased(StatutoryRuleParameters params, ComponentCalculationContext context) {
+        BigDecimal basis = wageBasis(params, context);
+        StatutoryRuleBracket matched = findMatchingBracket(params.brackets(), basis);
+        if (matched == null) {
+            return BigDecimal.ZERO;
+        }
+        return matched.fixedAmount() != null ? matched.fixedAmount() : percentageOf(basis, matched.percentage());
+    }
+
+    /**
+     * {@code PROGRESSIVE_TAX}: every bracket the basis reaches contributes its own share - the
+     * classic marginal-rate accumulation an income-tax calculation requires. Each bracket taxes
+     * only the portion of the basis falling within its own {@code [lowerBound, upperBound)} span
+     * (clipped to the basis for the final, partially-filled bracket), and the contributions are
+     * summed. A {@code fixedAmount} bracket (if ever configured) contributes that flat amount in
+     * full once the basis reaches it, rather than being scaled by span - included for
+     * completeness of the generic shape, though a real income-tax bracket is ordinarily
+     * percentage-based.
+     */
+    private BigDecimal progressiveTax(StatutoryRuleParameters params, ComponentCalculationContext context) {
+        BigDecimal basis = wageBasis(params, context);
+        BigDecimal total = BigDecimal.ZERO;
+        for (StatutoryRuleBracket bracket : sortedByOrder(params.brackets())) {
+            if (basis.compareTo(bracket.lowerBound()) <= 0) {
+                break;
+            }
+            BigDecimal bracketTop = bracket.upperBound() == null ? basis : bracket.upperBound().min(basis);
+            BigDecimal span = bracketTop.subtract(bracket.lowerBound());
+            if (span.signum() <= 0) {
+                continue;
+            }
+            total = total.add(bracket.fixedAmount() != null ? bracket.fixedAmount() : percentageOf(span, bracket.percentage()));
+        }
+        return total;
+    }
+
+    private StatutoryRuleBracket findMatchingBracket(List<StatutoryRuleBracket> brackets, BigDecimal basis) {
+        for (StatutoryRuleBracket bracket : sortedByOrder(brackets)) {
+            boolean atOrAboveLower = basis.compareTo(bracket.lowerBound()) >= 0;
+            boolean belowUpper = bracket.upperBound() == null || basis.compareTo(bracket.upperBound()) < 0;
+            if (atOrAboveLower && belowUpper) {
+                return bracket;
+            }
+        }
+        return null;
+    }
+
+    private List<StatutoryRuleBracket> sortedByOrder(List<StatutoryRuleBracket> brackets) {
+        return brackets == null ? List.of() : brackets.stream().sorted(Comparator.comparingInt(StatutoryRuleBracket::order)).toList();
     }
 
     private BigDecimal percentageOf(BigDecimal basis, BigDecimal percentage) {

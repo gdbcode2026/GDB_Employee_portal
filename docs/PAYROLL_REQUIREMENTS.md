@@ -9,10 +9,12 @@ contradict, `docs/DEVELOPMENT_ROADMAP.md`, `docs/architecture/MICROSERVICES.md`,
 
 **Status: Phase 1 (Foundation), Phase 2 (Calculation Core), Phase 3 (Approval/Finalization),
 Phase 4 (Payslip Generation), Adjustment Runs (Section K), Employee Compensation Management +
-Statutory Profile + Payroll Exceptions (Section G/E), and the Configurable Statutory + Tax Rule
-Engine (Section G/H) are all implemented at the *technical* level. Every sensitive business
-function - real salary/tax/statutory values, the actual pay-component catalogue, every actual
-PF/ESI/Professional Tax/TDS rate or slab, the adjustment/netting accounting policy, and every
+Statutory Profile + Payroll Exceptions (Section G/E), the Configurable Statutory + Tax Rule
+Engine (Section G/H), and its India Payroll V1 architecture extension (`SLAB_BASED`/`PROGRESSIVE_TAX`
+calculation shapes, jurisdiction/tax-regime-aware resolution) are all implemented at the
+*technical* level. Every sensitive business function - real salary/tax/statutory values, the
+actual pay-component catalogue, every actual PF/ESI/Professional Tax/TDS rate or slab, the
+adjustment/netting accounting policy, and every
 other item in Section X - remains gated on GDB approval.**
 A `payroll-service` module implements `PayrollPeriod`/`PayrollRun` lifecycle (Section D, now
 including `PROCESSING`/`CALCULATION_FAILED`), RBAC (`payroll.process`/`payroll.approve`/
@@ -416,6 +418,56 @@ before this revision, now additionally including every actual PF/ESI/Professiona
 slab, threshold, and eligibility condition that this rule engine is built to hold once GDB/
 Finance/Legal supplies it.
 
+### Revision: India Payroll V1 rule-engine architecture extension implemented (SLAB_BASED, PROGRESSIVE_TAX, jurisdiction/tax-regime-aware resolution)
+
+The India Payroll V1 research (`docs/INDIA_PAYROLL_V1_RULE_SOURCES.md`) identified a genuine
+*capability* gap, not a sourcing gap: the three calculation shapes above could not correctly
+express Professional Tax's multi-bracket flat-fee slab structure or salary TDS's progressive,
+regime-dependent calculation. This revision closes that capability gap technically. **No real
+PF/ESI/Professional Tax/TDS rate, slab, threshold, or eligibility value is introduced — this is
+architecture only, exactly as instructed.**
+
+- **Two new calculation shapes** — `SLAB_BASED` (exactly one matching bracket applies, never
+  cumulative - fits a flat-fee slab tax such as Professional Tax) and `PROGRESSIVE_TAX` (every
+  bracket the basis reaches contributes its own marginal share, summed - the classic income-tax
+  accumulation). Both are built on a new, shared `StatutoryRuleBracket` shape: `order`,
+  `lowerBound`, `upperBound` (nullable only for the last bracket by `order`), and exactly one of
+  `fixedAmount`/`percentage` - never an executable formula or expression string.
+- **Write-time validation** (`StatutoryRuleService.validateBrackets`) rejects: no brackets at
+  all, a duplicate `order` value, a bracket with both or neither of `fixedAmount`/`percentage`
+  set, a non-last bracket with an open-ended `upperBound`, and any gap or overlap between
+  consecutive brackets (each bracket's `lowerBound` must exactly equal the previous bracket's
+  `upperBound`) - brackets are therefore always contiguous, non-overlapping, and deterministically
+  ordered by construction, never trusted at calculation time alone.
+- **Tax-regime-aware resolution** - `StatutoryRule.taxRegime` (nullable, free-form, mirroring
+  `jurisdiction`'s existing pattern exactly) lets a `TDS`-coded component resolve a different rule
+  version per employee based on the employee's own elected regime, read from a new
+  `EmployeeStatutoryProfile.taxRegime` field. **This codebase does not decide which tax regime(s)
+  GDB offers or defaults** - the field is free text, never an enum of named regimes, per the
+  explicit instruction not to decide this. Version numbering and the no-overlap activation guard
+  are both now scoped per `(code, jurisdiction, taxRegime)` - a jurisdiction and a tax regime are
+  independent dimensions; either, both, or neither may apply to a given rule family.
+- **Historical reproducibility preserved unchanged** - `SLAB_BASED`/`PROGRESSIVE_TAX` resolve
+  through the exact same effective-dated, status-gated `StatutoryRuleResolver` path as the three
+  existing shapes; nothing about version immutability or period-date-driven resolution changed.
+- **Payslip integration required no change** - a bracket-computed amount flows into the same
+  `PayrollRunLine.componentBreakdown` JSON every other component already uses.
+- **Database** - one new Flyway migration (`V6`) adds `statutory_rules.tax_regime`, widens the
+  unique constraint to `(code, jurisdiction, tax_regime, rule_version)` (carrying forward the
+  same documented nullable-column concurrency caveat from `V5`), and adds
+  `employee_statutory_profiles.tax_regime`. Brackets themselves need no new table - they live
+  inside the existing `parameters` JSONB column.
+- **Still not possible without a real configuration**: this revision makes Professional Tax's
+  slab structure and TDS's progressive calculation *expressible*, not *configured* - no bracket
+  boundary, rate, or fee was loaded. `docs/INDIA_PAYROLL_V1_RULE_SOURCES.md`/
+  `docs/INDIA_PAYROLL_V1_RULE_CONFIGURATION.md`'s PENDING_FINANCE_LEGAL_CONFIRMATION items are
+  entirely unresolved by this revision - only the prior "the engine literally cannot express this"
+  finding is resolved.
+
+**Nothing else changed.** The three pre-existing calculation shapes, every existing endpoint's
+request/response shape (apart from the additive `taxRegime` field and the `brackets` array), and
+every other Section of this document are unaffected.
+
 ---
 
 ## A. Payroll scope
@@ -548,8 +600,11 @@ cross-service references, `*_id` for local foreign keys):
   (unique), `pf_status`/`esi_status`/`pt_status` (`APPLICABLE`/`NOT_APPLICABLE`/
   `PENDING_VERIFICATION`), `pf_uan`, `pf_member_id`, `esi_identifier`, `pt_jurisdiction`
   (identifiers - sensitive, never logged), `pf_effective_from/to`, `esi_effective_from/to`,
-  `pt_effective_from/to`, standard audit columns. **Implemented.** No statutory rate, threshold,
-  or eligibility rule is stored - only applicability status and identifiers.
+  `pt_effective_from/to`, `tax_regime` (nullable, **added** by the India Payroll V1 architecture-
+  extension revision - the employee's own elected TDS tax-regime identifier, free-form, never
+  decided or defaulted by this codebase), standard audit columns. **Implemented.** No statutory
+  rate, threshold, or eligibility rule is stored - only applicability status, identifiers, and
+  the regime identifier.
 - **payroll_runs**: `id`, `period_id FK`, `run_type` (`REGULAR`/`ADJUSTMENT`), `corrects_run_id`
   (nullable, self-referencing FK, populated only for `ADJUSTMENT` runs), `status` (now including
   `PROCESSING`/`CALCULATION_FAILED`, Section D), `initiated_by`, `approved_by`, `approved_at`,
@@ -592,14 +647,19 @@ cross-service references, `*_id` for local foreign keys):
 - **outbox_events** / **processed_events**: identical shape to every other service in this
   platform (transactional outbox; inbox for the two consumed events in Section Q). **Implemented.**
 - **statutory_rules** (new, Rule Engine task): `id`, `code`, `rule_type`
-  (`PF`/`ESI`/`PROFESSIONAL_TAX`/`TDS`/`OTHER`), `jurisdiction` (nullable), `rule_version`,
-  `effective_from`, `effective_to`, `status` (`DRAFT`/`ACTIVE`/`INACTIVE`), `calculation_type`
-  (`FIXED_AMOUNT`/`PERCENTAGE`/`THRESHOLD_BASED`), `parameters` (JSONB - amount/percentage/wage-
-  basis-code/minWage/maxWage/cap; never executable code), standard audit columns. Unique per
-  `(code, jurisdiction, rule_version)` - version numbering is scoped per jurisdiction, so
-  Professional Tax can hold an independent version sequence per state under one `code`.
-  **Implemented**; the table starts and remains empty of any real rate/slab/threshold - every row
-  is created only through `POST /payroll/statutory-rules` once an approved configuration exists.
+  (`PF`/`ESI`/`PROFESSIONAL_TAX`/`TDS`/`OTHER`), `jurisdiction` (nullable), `tax_regime`
+  (nullable, **added** by the India Payroll V1 architecture-extension revision - free-form,
+  never a decided/defaulted regime), `rule_version`, `effective_from`, `effective_to`, `status`
+  (`DRAFT`/`ACTIVE`/`INACTIVE`), `calculation_type` (`FIXED_AMOUNT`/`PERCENTAGE`/
+  `THRESHOLD_BASED`/`SLAB_BASED`/`PROGRESSIVE_TAX` - the last two **added** by the same
+  revision), `parameters` (JSONB - amount/percentage/wage-basis-code/minWage/maxWage/cap/
+  `brackets` (an ordered, contiguous, non-overlapping list, **added** by the same revision);
+  never executable code), standard audit columns. Unique per `(code, jurisdiction, tax_regime,
+  rule_version)` - version numbering is scoped per jurisdiction *and* tax regime, so Professional
+  Tax can hold an independent version sequence per state, and TDS per elected regime, under one
+  `code`. **Implemented**; the table starts and remains empty of any real rate/slab/threshold -
+  every row is created only through `POST /payroll/statutory-rules` once an approved
+  configuration exists.
 
 No cross-service foreign keys are introduced; `employee_ref`, `document_ref` remain opaque
 `*_ref` values per the platform-wide convention.
@@ -689,14 +749,23 @@ code change to the calculation pipeline itself:
   gross earnings, or of one specifically named component via `wageBasisComponentCode`), and
   `THRESHOLD_BASED` (the same percentage calculation, additionally gated by an eligibility floor
   `minWage`, a wage ceiling `maxWage` the percentage is computed against, and/or a maximum
-  contribution `cap`). No rate/slab/threshold *value* is ever hard-coded — only these three
+  contribution `cap`). **Extended by the India Payroll V1 architecture-extension revision** with
+  `SLAB_BASED` (exactly one matching ordered bracket applies, never cumulative - fits a flat-fee
+  slab tax such as Professional Tax) and `PROGRESSIVE_TAX` (every bracket the basis reaches
+  contributes its own marginal share, summed - the classic income-tax accumulation); both are
+  built on a shared `StatutoryRuleBracket` (`order`, `lowerBound`, `upperBound`, and exactly one
+  of `fixedAmount`/`percentage`), validated at write time for contiguity, non-overlap, and
+  deterministic ordering. No rate/slab/threshold *value* is ever hard-coded — only these five
   generic shapes exist in code.
-- **Jurisdiction-aware Professional Tax** — a `PROFESSIONAL_TAX`-coded component's rule resolves
-  per the *employee's own* `EmployeeStatutoryProfile.ptJurisdiction` at calculation time, so one
-  `calculationStrategyCode` correctly serves employees across different states without per-
-  employee code selection. Version numbering is scoped per `(code, jurisdiction)` - two
-  jurisdictions under the same `code` each hold their own independent version sequence.
-  `ruleType` itself is locked for the whole `code` family regardless of jurisdiction.
+- **Jurisdiction- and tax-regime-aware resolution** — a `PROFESSIONAL_TAX`-coded component's rule
+  resolves per the *employee's own* `EmployeeStatutoryProfile.ptJurisdiction`, and (India Payroll
+  V1 architecture-extension revision) a `TDS`-coded component's rule resolves per the employee's
+  own `EmployeeStatutoryProfile.taxRegime` (free-form, never a decided/defaulted regime) - at
+  calculation time, so one `calculationStrategyCode` correctly serves employees across different
+  states/regimes without per-employee code selection. Version numbering and the no-overlap
+  activation guard are both scoped per `(code, jurisdiction, taxRegime)` - each distinct
+  combination under the same `code` holds its own independent version sequence. `ruleType` itself
+  is locked for the whole `code` family regardless of jurisdiction/regime.
 - **Missing/inapplicable handling** — a component wired to a rule family with no `ACTIVE`
   version covering the period contributes zero and raises `MISSING_STATUTORY_RULE` (or `TAX_
   CONFIGURATION_REQUIRED` for a `TDS`-coded component); a resolved `THRESHOLD_BASED` rule whose
@@ -1463,6 +1532,28 @@ values):
   test continues to pass unmodified, and a component with no `calculationStrategyCode` set still
   resolves through the unchanged `FixedAmountStrategy` path — **verified**, full payroll-service
   suite green (134/134).
+
+**Added in the India Payroll V1 architecture-extension revision:**
+- A `SLAB_BASED` rule applies exactly one matching bracket's own `fixedAmount`/`percentage`,
+  never cumulative, including the open-ended top bracket and a zero-fee bracket - **implemented
+  and verified** (`StatutoryRuleAmountCalculatorTest`, `StatutoryRuleIntegrationTest`).
+- A `PROGRESSIVE_TAX` rule sums only the portion of the basis falling within each bracket's own
+  span (marginal-rate accumulation), including a basis that never reaches the first taxable
+  bracket and a basis that reaches the open-ended top bracket — **implemented and verified**.
+- Creating a bracket list with a duplicate `order`, both or neither of `fixedAmount`/`percentage`
+  set, a non-last open-ended bracket, an overlap, or a gap between brackets is rejected (422);
+  a zero-value `fixedAmount` bracket (a legitimate "Nil" slab) is accepted — **implemented and
+  verified** (`StatutoryRuleServiceTest`, `StatutoryRuleIntegrationTest`).
+- A `TDS`-coded component resolves the rule version matching the employee's own
+  `EmployeeStatutoryProfile.taxRegime`; an employee electing a different regime than the one a
+  rule is configured for correctly produces `TAX_CONFIGURATION_REQUIRED`, never the other
+  regime's rule — **implemented and verified**.
+- Version numbering and the no-overlap activation guard are each independently scoped per
+  `(code, jurisdiction, taxRegime)` - unchanged by this revision for the existing jurisdiction
+  dimension, extended identically for the new tax-regime dimension.
+- Every pre-existing test (including the three prior Rule Engine revisions and Compensation
+  Management) continues to pass unmodified — **verified**, full payroll-service suite green
+  (155/155).
 
 **Added by the Phase 2 revision:**
 - A genuine calculation failure (an ambiguous/invalid compensation state, not a mock) rolls back

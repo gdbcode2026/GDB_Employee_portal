@@ -26,7 +26,8 @@ public final class StatutoryProfileDtos {
             @NotNull StatutoryApplicabilityStatus esiStatus, @Size(max = 32) String esiIdentifier,
             LocalDate esiEffectiveFrom, LocalDate esiEffectiveTo,
             @NotNull StatutoryApplicabilityStatus ptStatus, @Size(max = 64) String ptJurisdiction,
-            LocalDate ptEffectiveFrom, LocalDate ptEffectiveTo) { }
+            LocalDate ptEffectiveFrom, LocalDate ptEffectiveTo,
+            @Size(max = 32) String taxRegime) { }
 
     public record Response(
             UUID id, UUID employeeRef,
@@ -36,5 +37,6 @@ public final class StatutoryProfileDtos {
             LocalDate esiEffectiveFrom, LocalDate esiEffectiveTo,
             StatutoryApplicabilityStatus ptStatus, String ptJurisdiction,
             LocalDate ptEffectiveFrom, LocalDate ptEffectiveTo,
+            String taxRegime,
             Instant createdAt, Instant updatedAt) { }
 }
