@@ -62,6 +62,13 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
  * in {@code PayrollRunService}, not here, since it depends on the specific run's recorded
  * {@code initiatedBy}, not just the caller's grants - this applies identically to an adjustment
  * run, since nothing in that service branches on {@code runType}.
+ *
+ * <p>Statutory/tax rule configuration (Rule Engine task) reuses the identical maker-checker
+ * split: creating or editing a {@code DRAFT} rule version is {@code payroll.process};
+ * activating/deactivating a version - making it live for calculation, or taking it out of
+ * service - is {@code payroll.approve}. No new permission is introduced; the HR-vs-Finance split
+ * remains PENDING_GDB_APPROVAL (Section X) exactly as for every other Compensation Management
+ * endpoint above.
  */
 @Configuration
 public class SecurityConfig {
@@ -108,6 +115,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/payroll/exceptions/*/resolve").hasAuthority("payroll.process")
                         .requestMatchers(HttpMethod.GET, "/api/v1/payroll/exceptions")
                         .hasAnyAuthority("payroll.process", "payroll.read.all")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payroll/statutory-rules").hasAuthority("payroll.process")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/payroll/statutory-rules/*").hasAuthority("payroll.process")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payroll/statutory-rules/*/activate",
+                                "/api/v1/payroll/statutory-rules/*/deactivate").hasAuthority("payroll.approve")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payroll/statutory-rules", "/api/v1/payroll/statutory-rules/*")
+                        .hasAnyAuthority("payroll.process", "payroll.read.all", "payroll.approve")
                         .requestMatchers(HttpMethod.GET, "/api/v1/payroll/payslips/me")
                         .hasAnyAuthority("payslip.read.self", "payslip.read.all")
                         .requestMatchers(HttpMethod.GET, "/api/v1/payroll/payslips/*/download")

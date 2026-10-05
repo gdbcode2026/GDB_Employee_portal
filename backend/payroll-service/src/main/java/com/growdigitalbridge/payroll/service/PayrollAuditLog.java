@@ -136,6 +136,26 @@ public class PayrollAuditLog {
                 exceptionId, runId, employeeRef, actor, correlationId);
     }
 
+    /** {@code code} is a rule-family identifier (e.g. "PF_EMPLOYEE_CONTRIBUTION"), never an amount/percentage/identifier value. */
+    public void statutoryRuleCreated(UUID ruleId, String code, int ruleVersion, String actor, UUID correlationId) {
+        log.info("action=statutory_rule.created ruleId={} code={} ruleVersion={} actor={} correlationId={}",
+                ruleId, code, ruleVersion, actor, correlationId);
+    }
+
+    public void statutoryRuleUpdated(UUID ruleId, String actor, UUID correlationId) {
+        log.info("action=statutory_rule.updated ruleId={} actor={} correlationId={}", ruleId, actor, correlationId);
+    }
+
+    public void statutoryRuleActivated(UUID ruleId, String code, int ruleVersion, String actor, UUID correlationId) {
+        log.info("action=statutory_rule.activated ruleId={} code={} ruleVersion={} actor={} correlationId={}",
+                ruleId, code, ruleVersion, actor, correlationId);
+    }
+
+    public void statutoryRuleDeactivated(UUID ruleId, String code, int ruleVersion, String actor, UUID correlationId) {
+        log.info("action=statutory_rule.deactivated ruleId={} code={} ruleVersion={} actor={} correlationId={}",
+                ruleId, code, ruleVersion, actor, correlationId);
+    }
+
     private void record(String action, UUID resourceId, String actor, UUID correlationId, String note) {
         log.info("action={} resourceId={} actor={} correlationId={} note={}", action, resourceId, actor, correlationId, note);
     }

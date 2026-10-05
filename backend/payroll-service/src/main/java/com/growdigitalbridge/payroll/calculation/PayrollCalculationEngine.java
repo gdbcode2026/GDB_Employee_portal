@@ -26,9 +26,11 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +53,14 @@ import org.springframework.transaction.annotation.Transactional;
  * each produces its own {@link PayrollException} *alongside* the normally-calculated line - these
  * never skip or alter the line, they only make the gap visible.
  *
+ * <p>Rule Engine task: a component whose {@code calculationStrategyCode} names a statutory rule
+ * family (resolved by {@link StatutoryRuleCalculationStrategy} via {@link
+ * CalculationStrategyRegistry}) that has no {@code ACTIVE} version for the period, or whose
+ * resolved {@code THRESHOLD_BASED} rule's eligibility floor is not met, contributes zero (never a
+ * fabricated amount) and raises {@code MISSING_STATUTORY_RULE}/{@code
+ * TAX_CONFIGURATION_REQUIRED}/{@code STATUTORY_RULE_NOT_APPLICABLE} instead - the same
+ * additive-visibility pattern, never a block on the line or the run.
+ *
  * <p>Reprocessing is idempotent (item 11): existing lines/exceptions for this run are deleted
  * before recalculating, so a run can be reprocessed any number of times before {@code
  * FINALIZED} without ever accumulating duplicate rows - consistent with decision 8, since nothing
@@ -58,6 +68,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class PayrollCalculationEngine {
+
+    private static final String TDS_COMPONENT_CODE = "TDS";
 
     private final PayrollRunRepository runRepository;
     private final PayrollPeriodRepository periodRepository;
@@ -133,11 +145,28 @@ public class PayrollCalculationEngine {
             BigDecimal totalDeductions = BigDecimal.ZERO;
             BigDecimal totalEmployerContributions = BigDecimal.ZERO;
             List<Map<String, Object>> breakdown = new ArrayList<>();
+            Set<PayrollExceptionReason> raisedRuleReasons = new LinkedHashSet<>();
 
             for (CompensationComponent component : components) {
                 ComponentCalculationContext context =
-                        new ComponentCalculationContext(period, compensation.get(), component, attendanceInputs, leaveInputs);
-                BigDecimal baseAmount = calculationStrategyRegistry.resolveAndCompute(context);
+                        new ComponentCalculationContext(period, compensation.get(), component, components, attendanceInputs, leaveInputs);
+                BigDecimal baseAmount;
+                try {
+                    baseAmount = calculationStrategyRegistry.resolveAndCompute(context);
+                } catch (MissingStatutoryRuleException e) {
+                    baseAmount = BigDecimal.ZERO;
+                    PayrollExceptionReason reason = missingRuleReasonFor(component.getComponentCode());
+                    if (raisedRuleReasons.add(reason)) {
+                        saveException(runId, employeeRef, reason, actor, correlationId, now);
+                        exceptionCount++;
+                    }
+                } catch (StatutoryRuleNotApplicableException e) {
+                    baseAmount = BigDecimal.ZERO;
+                    if (raisedRuleReasons.add(PayrollExceptionReason.STATUTORY_RULE_NOT_APPLICABLE)) {
+                        saveException(runId, employeeRef, PayrollExceptionReason.STATUTORY_RULE_NOT_APPLICABLE, actor, correlationId, now);
+                        exceptionCount++;
+                    }
+                }
                 BigDecimal prorationAdjustment = component.getComponentType() == CompensationComponentType.EARNING
                         ? prorationPolicyRegistry.resolveAndCompute(context)
                         : BigDecimal.ZERO;
@@ -163,7 +192,7 @@ public class PayrollCalculationEngine {
                     totalEmployerContributions, netPay, writeBreakdown(breakdown), actor, now));
             lineCount++;
 
-            exceptionCount += recordStatutoryProfileGaps(runId, employeeRef, actor, correlationId, now);
+            exceptionCount += recordConfigurationGaps(runId, employeeRef, components, actor, correlationId, now);
         }
 
         run.markCalculated(actor, now);
@@ -173,35 +202,57 @@ public class PayrollCalculationEngine {
     }
 
     /**
-     * Surfaces statutory-profile data-quality gaps for an employee who otherwise received a
-     * normal {@link PayrollRunLine} (item 3/4): a missing profile, or a missing identifier while
-     * PF/ESI is {@code APPLICABLE}/{@code PENDING_VERIFICATION} (never inferred as "not
-     * applicable" merely because the identifier is absent), or a missing Professional Tax
-     * jurisdiction under the same condition. Purely additive visibility - it never skips or alters
-     * the line already calculated above, and whether any of these should ever block a run remains
-     * PENDING_GDB_APPROVAL (Section X).
+     * Surfaces statutory-profile and tax-wiring data-quality gaps for an employee who otherwise
+     * received a normal {@link PayrollRunLine} (item 3/4, extended by the Rule Engine task's item
+     * 10/6): a missing profile, or a missing identifier while PF/ESI is {@code APPLICABLE}/{@code
+     * PENDING_VERIFICATION} (never inferred as "not applicable" merely because the identifier is
+     * absent), or a missing Professional Tax jurisdiction under the same condition, or a {@code
+     * TDS}-coded component present but never wired to any rule at all. The last check
+     * deliberately does not fire for an employee with no {@code TDS} component at all - the task
+     * explicitly forbids assuming every employee has a tax regime, so this only flags a gap in
+     * configuration that was already started, never one that was never attempted. Purely additive
+     * visibility - it never skips or alters the line already calculated above, and whether any of
+     * these should ever block a run remains PENDING_GDB_APPROVAL (Section X).
      */
-    private int recordStatutoryProfileGaps(UUID runId, UUID employeeRef, String actor, UUID correlationId, Instant now) {
+    private int recordConfigurationGaps(UUID runId, UUID employeeRef, List<CompensationComponent> components,
+                                         String actor, UUID correlationId, Instant now) {
+        int count = 0;
         Optional<EmployeeStatutoryProfile> profile = statutoryProfileRepository.findByEmployeeRef(employeeRef);
         if (profile.isEmpty()) {
             saveException(runId, employeeRef, PayrollExceptionReason.MISSING_STATUTORY_PROFILE, actor, correlationId, now);
-            return 1;
-        }
-
-        int count = 0;
-        if (profile.get().isPfIdentifierMissing()) {
-            saveException(runId, employeeRef, PayrollExceptionReason.MISSING_PF_IDENTIFIER, actor, correlationId, now);
             count++;
+        } else {
+            if (profile.get().isPfIdentifierMissing()) {
+                saveException(runId, employeeRef, PayrollExceptionReason.MISSING_PF_IDENTIFIER, actor, correlationId, now);
+                count++;
+            }
+            if (profile.get().isEsiIdentifierMissing()) {
+                saveException(runId, employeeRef, PayrollExceptionReason.MISSING_ESI_IDENTIFIER, actor, correlationId, now);
+                count++;
+            }
+            if (profile.get().isPtJurisdictionMissing()) {
+                saveException(runId, employeeRef, PayrollExceptionReason.OTHER_CONFIGURATION_ERROR, actor, correlationId, now);
+                count++;
+            }
         }
-        if (profile.get().isEsiIdentifierMissing()) {
-            saveException(runId, employeeRef, PayrollExceptionReason.MISSING_ESI_IDENTIFIER, actor, correlationId, now);
-            count++;
-        }
-        if (profile.get().isPtJurisdictionMissing()) {
-            saveException(runId, employeeRef, PayrollExceptionReason.OTHER_CONFIGURATION_ERROR, actor, correlationId, now);
+        if (hasUnwiredTdsComponent(components)) {
+            saveException(runId, employeeRef, PayrollExceptionReason.MISSING_TAX_CONFIGURATION, actor, correlationId, now);
             count++;
         }
         return count;
+    }
+
+    /** {@code TDS} component present but {@code calculationStrategyCode} never set - a started-but-incomplete tax configuration. */
+    private boolean hasUnwiredTdsComponent(List<CompensationComponent> components) {
+        return components.stream().anyMatch(c -> TDS_COMPONENT_CODE.equals(c.getComponentCode())
+                && (c.getCalculationStrategyCode() == null || c.getCalculationStrategyCode().isBlank()));
+    }
+
+    /** {@code TDS}-coded components get the tax-specific reason; every other missing-rule case is the generic statutory one. */
+    private PayrollExceptionReason missingRuleReasonFor(String componentCode) {
+        return TDS_COMPONENT_CODE.equals(componentCode)
+                ? PayrollExceptionReason.TAX_CONFIGURATION_REQUIRED
+                : PayrollExceptionReason.MISSING_STATUTORY_RULE;
     }
 
     private void saveException(UUID runId, UUID employeeRef, PayrollExceptionReason reason, String actor, UUID correlationId, Instant now) {

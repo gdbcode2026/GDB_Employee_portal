@@ -5,11 +5,13 @@ import org.springframework.stereotype.Component;
 
 /**
  * Resolves {@code CompensationComponent.calculationStrategyCode} to a registered {@link
- * ComponentCalculationStrategy}, falling back to {@link FixedAmountStrategy} when the code is
- * null or unregistered. This is the "configuration-driven" seam item 8 requires: which strategy
- * applies to a component is data (a code string on the row), never a code branch on component
- * type or name. Only one strategy is registered today; new ones can be added here by name without
- * touching the calculation engine.
+ * ComponentCalculationStrategy}. This is the "configuration-driven" seam item 8 requires: which
+ * strategy applies to a component is data (a code string on the row), never a code branch on
+ * component type or name. {@code null}/{@code FIXED_AMOUNT} resolves to {@link
+ * FixedAmountStrategy} exactly as before; any other code is treated as a statutory rule family
+ * identifier and delegated to {@link StatutoryRuleCalculationStrategy} (Rule Engine task) - the
+ * rule itself (not this registry) decides what the code means, so no new Java branch is needed
+ * per statutory law.
  */
 @Component
 public class CalculationStrategyRegistry {
@@ -17,17 +19,19 @@ public class CalculationStrategyRegistry {
     static final String FIXED_AMOUNT = "FIXED_AMOUNT";
 
     private final FixedAmountStrategy fixedAmountStrategy;
+    private final StatutoryRuleCalculationStrategy statutoryRuleCalculationStrategy;
 
-    public CalculationStrategyRegistry(FixedAmountStrategy fixedAmountStrategy) {
+    public CalculationStrategyRegistry(FixedAmountStrategy fixedAmountStrategy,
+                                        StatutoryRuleCalculationStrategy statutoryRuleCalculationStrategy) {
         this.fixedAmountStrategy = fixedAmountStrategy;
+        this.statutoryRuleCalculationStrategy = statutoryRuleCalculationStrategy;
     }
 
     public BigDecimal resolveAndCompute(ComponentCalculationContext context) {
         String code = context.component().getCalculationStrategyCode();
-        ComponentCalculationStrategy strategy = switch (code == null ? FIXED_AMOUNT : code) {
-            case FIXED_AMOUNT -> fixedAmountStrategy;
-            default -> fixedAmountStrategy;
-        };
-        return strategy.computeAmount(context);
+        if (code == null || FIXED_AMOUNT.equals(code)) {
+            return fixedAmountStrategy.computeAmount(context);
+        }
+        return statutoryRuleCalculationStrategy.computeAmount(context);
     }
 }

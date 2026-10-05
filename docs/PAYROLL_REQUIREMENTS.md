@@ -8,11 +8,12 @@ contradict, `docs/DEVELOPMENT_ROADMAP.md`, `docs/architecture/MICROSERVICES.md`,
 `docs/workflows/WORKFLOWS.md`, and `docs/PAYROLL_REPORTING_DECISIONS.md`.
 
 **Status: Phase 1 (Foundation), Phase 2 (Calculation Core), Phase 3 (Approval/Finalization),
-Phase 4 (Payslip Generation), Adjustment Runs (Section K), and Employee Compensation Management +
-Statutory Profile + Payroll Exceptions (Section G/E) are all implemented at the *technical* level.
-Every sensitive business function - real salary/tax/statutory values, the actual pay-component
-catalogue, the adjustment/netting accounting policy, and every other item in Section X - remains
-gated on GDB approval.**
+Phase 4 (Payslip Generation), Adjustment Runs (Section K), Employee Compensation Management +
+Statutory Profile + Payroll Exceptions (Section G/E), and the Configurable Statutory + Tax Rule
+Engine (Section G/H) are all implemented at the *technical* level. Every sensitive business
+function - real salary/tax/statutory values, the actual pay-component catalogue, every actual
+PF/ESI/Professional Tax/TDS rate or slab, the adjustment/netting accounting policy, and every
+other item in Section X - remains gated on GDB approval.**
 A `payroll-service` module implements `PayrollPeriod`/`PayrollRun` lifecycle (Section D, now
 including `PROCESSING`/`CALCULATION_FAILED`), RBAC (`payroll.process`/`payroll.approve`/
 `payroll.read.all`), audit logging, idempotency, **and** a real calculation pipeline: effective-dated
@@ -339,6 +340,82 @@ every item in Section X remains exactly as PENDING_GDB_APPROVAL as before. The e
 calculation pipeline, approval/finalization flow, adjustment-run mechanics, and payslip generation
 are unchanged beyond the single additive statutory-profile-gap check described above.
 
+### Revision: Configurable Statutory + Tax Rule Engine implemented
+
+A versioned, effective-dated rule framework for PF/ESI/Professional Tax/TDS is now implemented
+(Section G/E/O), replacing nothing in the existing calculation pipeline — only the previously
+all-`FIXED_AMOUNT` `calculationStrategyCode` seam (Section H) now also accepts a reference to a
+managed rule family. **No real PF/ESI/Professional Tax/TDS rate, slab, threshold, or eligibility
+value is seeded anywhere** — every number in this feature is either structural (dates, status,
+version numbers) or explicit, clearly-marked TEST DATA in the test suite:
+
+- **`StatutoryRule`** (new entity) — one row per *version* of a named rule family (`code`):
+  `ruleType` (`PF`/`ESI`/`PROFESSIONAL_TAX`/`TDS`/`OTHER`), `jurisdiction` (nullable — set only
+  for jurisdiction-aware rules), `ruleVersion`, `effectiveFrom`/`effectiveTo`, `status`
+  (`DRAFT`/`ACTIVE`/`INACTIVE`), `calculationType` (`FIXED_AMOUNT`/`PERCENTAGE`/
+  `THRESHOLD_BASED`), and a JSON `parameters` blob (`StatutoryRuleParameters`: `amount`,
+  `percentage`, `wageBasisComponentCode`, `minWage`, `maxWage`, `cap`) — a generic calculation
+  *shape*, never a formula or executable code. Only `DRAFT` versions are editable; `ACTIVE`/
+  `INACTIVE` are immutable, so correcting a live rule means creating the next version, never
+  mutating history.
+- **Versioning and reproducibility** (item 7) — the calculation engine resolves the one `ACTIVE`
+  version whose `[effectiveFrom, effectiveTo]` covers the payroll period's start date, exactly
+  mirroring `CompensationResolver`'s existing pattern. A later-activated, later-effective version
+  never changes an earlier period's already-resolved rule — verified by a dedicated
+  reproducibility test that reprocesses the same historical run after a newer version goes live.
+- **Jurisdiction-aware resolution** (item 5) — a `PROFESSIONAL_TAX`-coded component resolves the
+  rule version matching the *employee's own* `EmployeeStatutoryProfile.ptJurisdiction` at
+  calculation time, so one `calculationStrategyCode` on a component correctly serves employees in
+  different jurisdictions without per-employee code selection. Version numbering is scoped per
+  `(code, jurisdiction)` pair — two different jurisdictions under the same `code` each get their
+  own independent version-1-onward sequence; `ruleType` is still locked for the whole `code`
+  family regardless of jurisdiction.
+- **Validation at write time** (item 8) — rejected (422): missing required parameter for the
+  chosen `calculationType`, `effectiveTo` before `effectiveFrom`, `minWage` greater than
+  `maxWage`. Rejected (409) at activation: a version whose effective range would overlap another
+  `ACTIVE` version of the same `(code, jurisdiction)`. `INVALID_STATUTORY_CONFIGURATION` is
+  defined in the `PayrollException` reason enum for documentation but is never actually raised at
+  runtime — exactly the same write-time-prevention symmetry already established for
+  `OVERLAPPING_COMPENSATION`/`INVALID_EFFECTIVE_DATES`/`INVALID_PAY_COMPONENT`.
+- **Calculation integration** (item 9) — `CalculationStrategyRegistry` now routes any
+  `calculationStrategyCode` other than `null`/`FIXED_AMOUNT` to the new rule-based strategy; the
+  pipeline's control flow (Input Resolution → Compensation Resolution → Earnings → Proration →
+  Statutory/Tax → Employer Contributions → Gross → Net → `PayrollRunLine`) is unchanged. A missing
+  active rule, or a `THRESHOLD_BASED` rule whose `minWage` eligibility floor is not met,
+  contributes zero (never a fabricated amount) and raises a `PayrollException` instead of
+  blocking the employee's line or the run.
+- **Extended `PayrollException` reasons** (item 10) — `MISSING_STATUTORY_RULE` (a non-TDS
+  component's rule is unresolvable), `TAX_CONFIGURATION_REQUIRED` (same, for a `TDS`-coded
+  component), `MISSING_TAX_CONFIGURATION` (a `TDS` component exists but was never wired to any
+  rule at all — deliberately narrower than "this employee has no TDS component," since the task
+  explicitly forbids assuming every employee has a tax regime), `STATUTORY_RULE_NOT_APPLICABLE`
+  (an active `THRESHOLD_BASED` rule's eligibility floor was not met), and
+  `INVALID_STATUTORY_CONFIGURATION` (defined, write-time-enforced only, see above).
+- **Payslip integration** (item 11) — required **no code change**: a rule-computed amount flows
+  into the same `PayrollRunLine.componentBreakdown` JSON every other component already uses, and
+  `PayslipContentAssembler` already reads that breakdown generically by `componentCode`/
+  `finalAmount` — the existing TDS-by-component-code YTD lookup is exactly this mechanism.
+- **Security** (item 12) — reuses the existing maker-checker split, no new permission: creating/
+  editing a `DRAFT` rule version requires `payroll.process`; activating/deactivating a version
+  requires `payroll.approve` (making a rule live is approval-weight, the same checker side as
+  approving a run). No self-service path exists; Admin gains no automatic access.
+- **API** (item 13) — `POST /payroll/statutory-rules` (create-or-next-version by `code`), `GET
+  /payroll/statutory-rules`/`/{id}` (optionally filtered by `code`), `PATCH
+  /payroll/statutory-rules/{id}` (draft-only), `POST /payroll/statutory-rules/{id}/activate`,
+  `POST /payroll/statutory-rules/{id}/deactivate`.
+- **Database** — one new Flyway migration (`V5`) creates `statutory_rules` (empty — no rule
+  family is seeded by this codebase, unlike `pay_components`' generic baseline names). Unique per
+  `(code, jurisdiction, rule_version)`; because `jurisdiction` is nullable, two simultaneous
+  "create next version" calls for the same non-jurisdictional code are not caught by this DB
+  constraint alone — a documented, narrow concurrency caveat, not a silent gap.
+
+**Nothing else changed.** No payment/bank integration, compliance filing, Form 16 generation,
+Reporting integration, benefits policy, real GDB salary policy, or adjustment/netting accounting
+policy was implemented. Every item in Section X remains exactly as PENDING_GDB_APPROVAL as
+before this revision, now additionally including every actual PF/ESI/Professional Tax/TDS rate,
+slab, threshold, and eligibility condition that this rule engine is built to hold once GDB/
+Finance/Legal supplies it.
+
 ---
 
 ## A. Payroll scope
@@ -439,6 +516,7 @@ entities decisions 4–9 require to be actionable:
 | `PayrollLeaveInput` | Payroll's own snapshot of one `leave.approved.v1` event (employee ref, leave request ref, approved units) | **Implemented** (Phase 2) - new entity; Leave's event carries no date range, so this snapshot is not period-filtered (a data-availability gap, not an invented assumption) |
 | `Payslip` | One finalized, generated payslip per employee per run: employee ref, run ref, period ref, document ref, generated timestamp | **Implemented** (Phase 4) - unique per `(run_id, employee_ref)`; an adjustment run's payslip is an independent row, never a mutation of the original run's payslip |
 | `PayslipGenerationFailure` | Recorded when payslip generation fails for one employee within a finalized run (technical retry-tracking entity, not in the original specification) | **Implemented** (Phase 4) - upserted per `(run_id, employee_ref)`; mirrors `PayrollException`'s precedent of surfacing a technical problem without blocking the run or inventing a business resolution |
+| `StatutoryRule` | One versioned, effective-dated PF/ESI/Professional Tax/TDS rule family (new entity, Rule Engine task): code, rule type, jurisdiction, version, effective dates, status, calculation type, JSON parameters | **Implemented** - no real rate/slab/threshold/eligibility value is seeded; every row comes only from the new management API |
 
 ## F. Database tables and important fields
 
@@ -457,7 +535,9 @@ cross-service references, `*_id` for local foreign keys):
   identifies the configurable proration policy for attendance/leave-sensitive components,
   Section H — no formula is stored here, only a policy identifier; **Implemented**),
   `calculation_strategy_code` (nullable; identifies the configurable calculation strategy for
-  the component's amount, same pattern; **Implemented**, added during Phase 2).
+  the component's amount, same pattern; **Implemented**, added during Phase 2 - since the Rule
+  Engine task, any value other than `null`/`FIXED_AMOUNT` is treated as a `statutory_rules.code`
+  reference, resolved per Section H).
 - **pay_components**: `id`, `code`, `name`, `type`, plus (**added** in the Compensation Management
   revision) `active` and the standard `created_at/created_by/updated_at/updated_by/version` audit
   columns. **Implemented** — seeded with the Common India Payroll V1 Baseline's generic component
@@ -511,6 +591,15 @@ cross-service references, `*_id` for local foreign keys):
   `(run_id, employee_ref)` on retry, mirroring `payroll_exceptions`' precedent. **Implemented.**
 - **outbox_events** / **processed_events**: identical shape to every other service in this
   platform (transactional outbox; inbox for the two consumed events in Section Q). **Implemented.**
+- **statutory_rules** (new, Rule Engine task): `id`, `code`, `rule_type`
+  (`PF`/`ESI`/`PROFESSIONAL_TAX`/`TDS`/`OTHER`), `jurisdiction` (nullable), `rule_version`,
+  `effective_from`, `effective_to`, `status` (`DRAFT`/`ACTIVE`/`INACTIVE`), `calculation_type`
+  (`FIXED_AMOUNT`/`PERCENTAGE`/`THRESHOLD_BASED`), `parameters` (JSONB - amount/percentage/wage-
+  basis-code/minWage/maxWage/cap; never executable code), standard audit columns. Unique per
+  `(code, jurisdiction, rule_version)` - version numbering is scoped per jurisdiction, so
+  Professional Tax can hold an independent version sequence per state under one `code`.
+  **Implemented**; the table starts and remains empty of any real rate/slab/threshold - every row
+  is created only through `POST /payroll/statutory-rules` once an approved configuration exists.
 
 No cross-service foreign keys are introduced; `employee_ref`, `document_ref` remain opaque
 `*_ref` values per the platform-wide convention.
@@ -585,6 +674,45 @@ engine to encounter. **Whether any exception reason should block a run remains e
 undecided as the pre-existing `NO_EFFECTIVE_COMPENSATION` question (Section X)** — this revision
 adds visibility and resolution tracking only, never a blocking rule.
 
+### Configurable Statutory + Tax Rule Engine (implemented)
+
+A versioned, effective-dated `StatutoryRule` model now lets HR/Finance configure PF/ESI/
+Professional Tax/TDS calculation once an approved rate/slab/threshold exists, without any future
+code change to the calculation pipeline itself:
+
+- **Rule families and versions** — a `code` names one rule family (e.g. one PF employee-
+  contribution rule); every version under that `code` is numbered (`ruleVersion`), effective-
+  dated, and immutable once it leaves `DRAFT`. Correcting a live rule means creating the next
+  version, never mutating history — this is what keeps a historical payroll calculation
+  reproducible even after a newer version is later activated for a future date range.
+- **Calculation shapes** — `FIXED_AMOUNT` (a configured amount), `PERCENTAGE` (a percentage of
+  gross earnings, or of one specifically named component via `wageBasisComponentCode`), and
+  `THRESHOLD_BASED` (the same percentage calculation, additionally gated by an eligibility floor
+  `minWage`, a wage ceiling `maxWage` the percentage is computed against, and/or a maximum
+  contribution `cap`). No rate/slab/threshold *value* is ever hard-coded — only these three
+  generic shapes exist in code.
+- **Jurisdiction-aware Professional Tax** — a `PROFESSIONAL_TAX`-coded component's rule resolves
+  per the *employee's own* `EmployeeStatutoryProfile.ptJurisdiction` at calculation time, so one
+  `calculationStrategyCode` correctly serves employees across different states without per-
+  employee code selection. Version numbering is scoped per `(code, jurisdiction)` - two
+  jurisdictions under the same `code` each hold their own independent version sequence.
+  `ruleType` itself is locked for the whole `code` family regardless of jurisdiction.
+- **Missing/inapplicable handling** — a component wired to a rule family with no `ACTIVE`
+  version covering the period contributes zero and raises `MISSING_STATUTORY_RULE` (or `TAX_
+  CONFIGURATION_REQUIRED` for a `TDS`-coded component); a resolved `THRESHOLD_BASED` rule whose
+  `minWage` floor is not met contributes zero and raises `STATUTORY_RULE_NOT_APPLICABLE`. Neither
+  ever blocks the employee's line or the run (Section X leaves blocking policy undecided, exactly
+  as for every other exception reason).
+- **No pipeline redesign** — `CalculationStrategyRegistry` now routes any `calculationStrategyCode`
+  other than `null`/`FIXED_AMOUNT` to the rule-based strategy; every other step of the pipeline
+  (below) is unchanged, and the computed amount flows into the same `PayrollRunLine.
+  componentBreakdown` JSON every component already used, so payslip generation (Section L/M)
+  required no change at all.
+- **Management API/security** — `POST`/`GET`/`PATCH /payroll/statutory-rules[/{id}]` plus `POST
+  /payroll/statutory-rules/{id}/activate`/`/deactivate`. Create/edit-draft is `payroll.process`;
+  activate/deactivate is `payroll.approve` (making a rule live is approval-weight, reusing the
+  existing maker-checker split, Section J/P) - no new permission is introduced.
+
 ## H. Payroll calculation architecture
 
 **Implemented** (Section Y Phase 2), as a configuration-driven pipeline with no statutory/tax
@@ -607,9 +735,11 @@ calculation pipeline for a `PayrollRun`:
 5. Apply each `CompensationComponent` (earnings, deductions, employer contributions) through a
    **configurable calculation strategy** (`ComponentCalculationStrategy`, with `StatutoryCalculator`/
    `TaxCalculator` as distinct, separately-registrable extension points for statutory/tax-coded
-   components specifically). **Implemented**; the only registered strategy
-   (`FixedAmountStrategy`) returns the component's own configured amount unchanged - the pending
-   catalogue content and pending deduction/statutory rules (Section X) are not implemented.
+   components specifically). **Implemented**; `FixedAmountStrategy` remains the default for a
+   `null`/`FIXED_AMOUNT` `calculationStrategyCode`. Since the Rule Engine task, any other code is
+   resolved against a managed, versioned `StatutoryRule` (Section G/H's own subsection below) -
+   still no statutory rate/slab/threshold is hard-coded; a missing or inapplicable rule
+   contributes zero and raises a `PayrollException` instead of guessing a value.
 6. Compute `gross_pay`, `total_deductions`, `total_employer_contributions`, `net_pay` per
    employee, persisted as an immutable `PayrollRunLine` (structured JSON breakdown). **Implemented.**
 7. On finalization only (Section J), generate one `Payslip` + PDF per `PayrollRunLine`, upload it
@@ -972,6 +1102,16 @@ None of these endpoints accept a client-supplied employee identity as a self-ser
 one requires a payroll-authorized caller, matching the explicit "no employee self-service for
 this data" instruction.
 
+**Added in the Configurable Statutory + Tax Rule Engine revision** (same reuse-only-existing-
+permissions principle — no new permission introduced):
+
+- `POST /payroll/statutory-rules` — `payroll.process` (create or next version).
+- `GET /payroll/statutory-rules` / `GET /payroll/statutory-rules/{id}` — `payroll.process`,
+  `payroll.read.all`, or `payroll.approve`.
+- `PATCH /payroll/statutory-rules/{id}` — `payroll.process` (`DRAFT` only).
+- `POST /payroll/statutory-rules/{id}/activate` / `/deactivate` — `payroll.approve` (making a
+  rule live/inactive is approval-weight, the checker side of the same maker-checker split).
+
 No endpoint beyond this list is proposed. Exact request/response shapes are left to
 implementation time and are not part of this decision-locking exercise.
 
@@ -994,6 +1134,11 @@ The Compensation Management revision's endpoints (Section O) deliberately introd
 permission** — they reuse `payroll.process`/`payroll.read.all` exactly as already documented
 above, since the exact HR-vs-Finance authority split remains PENDING_GDB_APPROVAL (Section X) and
 inventing a split-specific permission now would prejudge that decision.
+
+The Rule Engine revision's endpoints (Section O) likewise introduce **no new permission**:
+creating/editing a `DRAFT` rule reuses `payroll.process`; activating/deactivating a rule reuses
+`payroll.approve` - the existing maker-checker split already documented above, chosen because
+making a rule live is an approval-weight action, the same checker side as approving a run.
 
 ## Q. Domain events
 
@@ -1181,6 +1326,11 @@ sensitive business function are still gated pending GDB approvals.
    Exceptions implemented" section above. Still gated on Section X: no real salary value, pay-
    component catalogue content, statutory rate/threshold/eligibility rule, or HR-vs-Finance
    authority split exists.
+8. **Statutory/tax rule engine** — versioned, effective-dated `StatutoryRule` management (Section
+   G/H/E/O) and its integration into the existing calculation pipeline's `calculationStrategyCode`
+   seam. **Implemented** — see the "Revision: Configurable Statutory + Tax Rule Engine
+   implemented" section above. The `statutory_rules` table remains empty of any real rate, slab,
+   threshold, or eligibility value; every such value remains PENDING_GDB_APPROVAL (Section X).
 
 **Revised finding:** the original wording above said Phase 1 could not begin coding at all until
 the pay-component catalogue and statutory rule source (Section X) were approved. That was too
@@ -1282,6 +1432,37 @@ values):
   include the new, intentionally-additive `MISSING_STATUTORY_PROFILE` exception — not a
   regression, a documented consequence of the new check) — **verified**, full payroll-service
   suite green (89/89).
+
+**Added in the Configurable Statutory + Tax Rule Engine revision:**
+- A payroll period resolves the `ACTIVE` `StatutoryRule` version whose effective range covers
+  that period's start date, never simply "the latest version" — **implemented and verified** by
+  a reproducibility test that reprocesses a historical run after a newer, later-effective version
+  is activated and asserts the historical amount is unchanged, then confirms a new run for a
+  period inside the newer version's range correctly resolves it (`StatutoryRuleIntegrationTest`).
+- Activating a rule version that would overlap another `ACTIVE` version of the same
+  `(code, jurisdiction)` is rejected (409); a different jurisdiction under the same `code` never
+  conflicts — **implemented and verified** (`StatutoryRuleServiceTest`,
+  `StatutoryRuleIntegrationTest`).
+- A component wired to a rule family with no `ACTIVE` version covering the period contributes
+  zero and raises `MISSING_STATUTORY_RULE`/`TAX_CONFIGURATION_REQUIRED` without blocking the
+  employee's line — **implemented and verified**.
+- A resolved `THRESHOLD_BASED` rule whose `minWage` eligibility floor is not met contributes zero
+  and raises `STATUTORY_RULE_NOT_APPLICABLE`, distinct from a missing rule — **implemented and
+  verified**.
+- A `TDS`-coded component with no `calculationStrategyCode` at all raises
+  `MISSING_TAX_CONFIGURATION`; an employee with no `TDS` component at all never raises it —
+  **implemented and verified**, directly guarding the task's "do not assume every employee has a
+  tax regime" instruction.
+- A `PROFESSIONAL_TAX` component resolves the rule version matching the employee's own
+  `EmployeeStatutoryProfile.ptJurisdiction`, not another jurisdiction's version — **implemented
+  and verified**.
+- Creating/editing a `DRAFT` rule requires `payroll.process`; activating/deactivating requires
+  `payroll.approve` specifically (`payroll.process` alone is rejected) — **implemented and
+  verified**.
+- Every pre-existing `PayrollRunLine`/payslip-generation/adjustment-run/Compensation-Management
+  test continues to pass unmodified, and a component with no `calculationStrategyCode` set still
+  resolves through the unchanged `FixedAmountStrategy` path — **verified**, full payroll-service
+  suite green (134/134).
 
 **Added by the Phase 2 revision:**
 - A genuine calculation failure (an ambiguous/invalid compensation state, not a mock) rolls back
