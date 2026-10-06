@@ -45,6 +45,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -164,14 +165,14 @@ class PayrollIntegrationTest {
         UUID periodId = createPeriod(Year.now().getValue() + 1, 1);
         UUID employeeA = UUID.randomUUID();
         UUID employeeB = UUID.randomUUID();
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeA, employeeB));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeA, employeeB));
 
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
         assertThat(run.employeeCount()).isEqualTo(2);
         assertThat(run.status().name()).isEqualTo("DRAFT");
 
         // Employee Service now reports a different population; the already-created run must not change.
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(UUID.randomUUID()));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(UUID.randomUUID()));
 
         MvcResult refetched = mockMvc.perform(get("/api/v1/payroll/runs/" + run.id())
                         .with(jwt().authorities(new SimpleGrantedAuthority("payroll.read.all"))))
@@ -183,7 +184,7 @@ class PayrollIntegrationTest {
     @Test
     void duplicateRunCreationForTheSamePeriodIsRejectedAsAConflict() throws Exception {
         UUID periodId = createPeriod(Year.now().getValue() + 1, 2);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(UUID.randomUUID()));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(UUID.randomUUID()));
 
         createRun(periodId, "maker-1");
 
@@ -198,7 +199,7 @@ class PayrollIntegrationTest {
     @Test
     void fullLifecycleProcessSubmitApproveFinalizeEmitsPayrollProcessed() throws Exception {
         UUID periodId = createPeriod(Year.now().getValue() + 1, 3);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
 
         mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process")
@@ -252,7 +253,7 @@ class PayrollIntegrationTest {
     @Test
     void rejectionReturnsTheRunToProcessingForCorrection() throws Exception {
         UUID periodId = createPeriod(Year.now().getValue() + 1, 4);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(UUID.randomUUID()));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(UUID.randomUUID()));
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
 
         mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process")
@@ -277,7 +278,7 @@ class PayrollIntegrationTest {
     @Test
     void selfApprovalIsRejectedEvenWhenTheInitiatorAlsoHoldsApprove() throws Exception {
         UUID periodId = createPeriod(Year.now().getValue() + 1, 5);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(UUID.randomUUID()));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(UUID.randomUUID()));
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
 
         mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process")
@@ -324,7 +325,7 @@ class PayrollIntegrationTest {
                 .andExpect(status().isForbidden());
 
         // payroll.process cannot approve (checker permission required).
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(UUID.randomUUID()));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(UUID.randomUUID()));
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
         mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/approve")
                         .with(jwt().authorities(new SimpleGrantedAuthority("payroll.process"))))
@@ -344,13 +345,35 @@ class PayrollIntegrationTest {
         compensationComponentRepository.save(new CompensationComponent(UUID.randomUUID(), current.getId(), "BASIC",
                 CompensationComponentType.EARNING, new BigDecimal("1.00"), null, "hr-1", now));
 
-        assertThat(compensationRepository.findEffectiveForEmployee(employeeRef, LocalDate.of(2024, 6, 15)))
+        assertThat(compensationRepository.findEffectiveForEmployee(employeeRef, LocalDate.of(2024, 6, 15), LocalDate.of(2024, 6, 15)))
                 .map(EmployeeCompensation::getId).contains(historical.getId());
-        assertThat(compensationRepository.findEffectiveForEmployee(employeeRef, LocalDate.of(2025, 6, 15)))
+        assertThat(compensationRepository.findEffectiveForEmployee(employeeRef, LocalDate.of(2025, 6, 15), LocalDate.of(2025, 6, 15)))
                 .map(EmployeeCompensation::getId).contains(current.getId());
-        assertThat(compensationRepository.findEffectiveForEmployee(employeeRef, LocalDate.of(2023, 1, 1)))
+        assertThat(compensationRepository.findEffectiveForEmployee(employeeRef, LocalDate.of(2023, 1, 1), LocalDate.of(2023, 1, 1)))
                 .isEmpty();
         assertThat(compensationComponentRepository.findByCompensationId(current.getId())).hasSize(1);
+    }
+
+    /**
+     * Payroll V1 completion review fix: resolution must succeed by range *overlap* with the full
+     * period, not merely "{@code effectiveFrom <= periodStart}" - a new joiner's (or any
+     * compensation revision's) {@code effectiveFrom} falling anywhere inside the period, not only
+     * on or before its first day, must still resolve.
+     */
+    @Test
+    void findEffectiveForEmployeeResolvesARecordWhoseEffectiveFromFallsInsideTheGivenPeriodRange() {
+        UUID employeeRef = UUID.randomUUID();
+        Instant now = Instant.now();
+        EmployeeCompensation midPeriodJoiner = new EmployeeCompensation(UUID.randomUUID(), employeeRef, "INR", PayFrequency.MONTHLY,
+                LocalDate.of(2026, 10, 15), null, "hr-1", now);
+        compensationRepository.save(midPeriodJoiner);
+
+        assertThat(compensationRepository.findEffectiveForEmployee(employeeRef, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31)))
+                .map(EmployeeCompensation::getId).contains(midPeriodJoiner.getId());
+
+        // A period entirely before the compensation's effectiveFrom must still not resolve.
+        assertThat(compensationRepository.findEffectiveForEmployee(employeeRef, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30)))
+                .isEmpty();
     }
 
     /** TEST DATA — synthetic amounts only, never real salary/tax figures. */
@@ -374,7 +397,7 @@ class PayrollIntegrationTest {
         int year = Year.now().getValue() + 2;
         UUID employeeRef = UUID.randomUUID();
         demoCompensation(employeeRef, LocalDate.of(year, 1, 1));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
 
         UUID periodId = createPeriod(year, 1);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
@@ -411,7 +434,7 @@ class PayrollIntegrationTest {
         UUID employeeWithCompensation = UUID.randomUUID();
         UUID employeeWithoutCompensation = UUID.randomUUID();
         demoCompensation(employeeWithCompensation, LocalDate.of(year, 2, 1));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeWithCompensation, employeeWithoutCompensation));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeWithCompensation, employeeWithoutCompensation));
 
         UUID periodId = createPeriod(year, 2);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
@@ -444,7 +467,7 @@ class PayrollIntegrationTest {
         UUID employeeRef = UUID.randomUUID();
         LocalDate periodStart = LocalDate.of(year, 3, 1);
         demoCompensation(employeeRef, periodStart);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
 
         // Real attendance/leave input snapshots, exactly as the messaging listeners would persist them.
         attendanceInputRepository.save(new PayrollAttendanceInput(UUID.randomUUID(), employeeRef, periodStart,
@@ -467,6 +490,39 @@ class PayrollIntegrationTest {
         assertThat(breakdown).allSatisfy(entry -> assertThat(((Number) entry.get("prorationAdjustment")).intValue()).isZero());
     }
 
+    /**
+     * Payroll V1 terminated-employee handling (GDB business decision Option A): a terminated
+     * employee who worked during the payroll period must appear in the run's employee snapshot
+     * and proceed through the existing calculation flow exactly like an active employee - no
+     * separate final-settlement path. {@code employeeClient.resolveEmployeeRefsEligibleForPeriod}
+     * is the single seam Employee Service's lifecycle data flows through into this run, so
+     * returning the terminated employee's ref here is equivalent, from the run's perspective, to
+     * Employee Service reporting them INACTIVE with employment dates overlapping the period.
+     */
+    @Test
+    void terminatedEmployeeWhoWorkedDuringThePeriodIsIncludedInTheRunAndProceedsThroughCalculation() throws Exception {
+        int year = Year.now().getValue() + 2;
+        UUID terminatedEmployeeRef = UUID.randomUUID();
+        LocalDate periodStart = LocalDate.of(year, 5, 1);
+        demoCompensation(terminatedEmployeeRef, periodStart);
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(terminatedEmployeeRef));
+
+        UUID periodId = createPeriod(year, 5);
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+        assertThat(run.employeeCount()).isEqualTo(1);
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("payroll.process"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CALCULATED"))
+                .andExpect(jsonPath("$.lineCount").value(1));
+
+        List<PayrollRunLine> lines = lineRepository.findByRunId(run.id());
+        assertThat(lines).hasSize(1);
+        assertThat(lines.get(0).getEmployeeRef()).isEqualTo(terminatedEmployeeRef);
+        assertThat(lines.get(0).getGrossPay()).isEqualByComparingTo("70000.00");
+    }
+
     @Test
     void calculationFailureRollsBackAndSafelyRecordsTheFailureThenAllowsReprocessing() throws Exception {
         int year = Year.now().getValue() + 2;
@@ -478,7 +534,7 @@ class PayrollIntegrationTest {
         // not a mocked one, that must roll back completely.
         EmployeeCompensation first = demoCompensation(employeeRef, periodStart);
         EmployeeCompensation second = demoCompensation(employeeRef, periodStart);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
 
         UUID periodId = createPeriod(year, 4);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");

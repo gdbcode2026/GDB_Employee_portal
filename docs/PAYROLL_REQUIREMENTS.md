@@ -185,7 +185,10 @@ Payroll V1 Baseline, entirely configuration-driven and with **zero statutory rat
 threshold, eligibility rule, or GDB-specific salary policy anywhere in code**:
 
 - **Effective-dated compensation resolution** (Section G) - `CompensationResolver` selects the
-  `EmployeeCompensation` covering the period's start date; historical records are never
+  `EmployeeCompensation` whose effective range **overlaps** the period (**Payroll V1 completion
+  review fix** - previously only a record already effective at the period's first day resolved,
+  silently excluding a mid-period joiner or revision; now any record overlapping any part of the
+  period resolves, using its full configured amount, unprorated); historical records are never
   overwritten.
 - **Configurable calculation strategies** (Section H) - `ComponentCalculationStrategy`, with
   `StatutoryCalculator`/`TaxCalculator` as distinct marker extension points for statutory/tax
@@ -468,6 +471,71 @@ architecture only, exactly as instructed.**
 request/response shape (apart from the additive `taxRegime` field and the `brackets` array), and
 every other Section of this document are unaffected.
 
+### Revision: mid-period compensation resolution defect fixed (Payroll V1 completion review)
+
+The Payroll V1 mandatory-flow completion review (`docs/PAYROLL_V1_COMPLETION_GAP.md`) identified
+that `CompensationResolver`/`EmployeeCompensationRepository.findEffectiveForEmployee` resolved a
+compensation record only if its `effectiveFrom` was on or before the payroll period's *first*
+day - so a new joiner hired mid-month, or any compensation revision taking effect mid-month, was
+silently excluded from that period's run with a `NO_EFFECTIVE_COMPENSATION` exception instead of
+a line. This is now fixed: resolution is by effective-range **overlap** with the full period
+(`effectiveFrom <= periodEnd` and `effectiveTo` null-or-`>= periodStart`), so any record
+overlapping any part of the period resolves, using its full configured amount unprorated - no
+proration/LOP rule is introduced, and no statutory rule logic was touched.
+
+`EmployeeCompensationService`'s historical-immutability check (`hasBeenUsedByFinalizedRun`) was
+updated identically, so a mid-period-joiner's compensation that has already paid an employee is
+locked just as reliably as one effective from a period's first day.
+
+**One intentional, unavoidable consequence**: two individually-valid, sequential compensation
+records (non-overlapping with *each other*, so write-time overlap prevention still allows both)
+that each independently overlap the *same* period - e.g. an old record ending mid-month and a new
+one starting mid-month - now resolve ambiguously (more than one row matches) and the run
+correctly fails safely as `CALCULATION_FAILED`, exactly like any other ambiguous compensation
+state, rather than silently using the wrong one. Deciding which record (or how to split between
+them) applies is itself a proration/business question this fix does not invent an answer to.
+
+**Nothing else changed.** Every other resolution behavior (before period start, exactly on period
+start, after period end, write-time overlap prevention between two records) is unchanged and
+covered by regression tests (`PayrollIntegrationTest`, `CompensationManagementIntegrationTest`).
+
+---
+
+### Revision: terminated-employee payroll eligibility (GDB business decision Option A)
+
+The Payroll V1 mandatory-flow completion review (`docs/PAYROLL_V1_COMPLETION_GAP.md`, item 2b)
+identified that once Employee Service marked an employee `INACTIVE`, that employee could never
+again appear in any future `PayrollRun`'s employee snapshot — including the run for the very month
+they worked before leaving, since `PayrollRunService.create`/`.createAdjustment` snapshotted
+employees via `EmployeeClient.resolveActiveEmployeeRefs()`, which only ever returns currently-
+`ACTIVE` employees.
+
+**Approved GDB business decision (Option A)**: a terminated employee remains eligible for the
+payroll period in which they worked; their final month's salary is processed through the normal
+payroll run. No separate Final Settlement module is introduced.
+
+This is now fixed: `EmployeeClient` gained `resolveEmployeeRefsEligibleForPeriod(periodStart,
+periodEnd)`, which returns every currently `ACTIVE` employee (unchanged) plus any `INACTIVE`
+employee whose employment overlapped the period — `startDate <= periodEnd AND (endDate IS NULL OR
+endDate >= periodStart)`. This condition naturally covers every scenario: active throughout the
+period (included), terminates during the period (included, including exactly on the period's first
+day), terminates before the period begins (excluded), and hired after the period ends (excluded).
+It reuses Employee Service's already-existing `GET /employees?status=INACTIVE` and
+`GET /employees/{id}` endpoints and already-existing `Employment.startDate`/`endDate` fields — no
+new Employee Service capability, no cross-service database access, no new business field.
+
+Both `PayrollRunService.create` (regular run) and `.createAdjustment` (Section K adjustment run)
+now call this method instead of the ACTIVE-only one, since both share the exact same employee-
+snapshot mechanism. `resolveActiveEmployeeRefs()` itself is unchanged and still used nowhere else
+that needed changing.
+
+**Nothing else changed.** No LOP/proration formula was introduced, and PF/ESI/PT/TDS calculation,
+payslip generation, adjustment-run-specific rules (self-approval, `corrects_run_id` linkage,
+in-flight uniqueness), and statutory rules are all untouched — this fix only changes which
+employees are selected into a run's snapshot. Covered by regression tests in
+`EmployeeClientTest` (eligibility boundary scenarios) and `PayrollIntegrationTest` (end-to-end:
+a terminated employee's ref flows through run creation into a calculated `PayrollRunLine`).
+
 ---
 
 ## A. Payroll scope
@@ -700,7 +768,8 @@ implemented:
   what the engine does if ambiguous data somehow still exists.
 - **Historical immutability** — a compensation record that a `FINALIZED` run has already read
   (determined by checking whether any of the employee's `PayrollRunLine`s belongs to a `FINALIZED`
-  run whose period start date falls inside this record's effective range) can no longer be
+  run whose period *overlaps* this record's effective range — Payroll V1 completion review fix,
+  mirroring `CompensationResolver`'s own overlap-based resolution exactly) can no longer be
   updated (409). No dedicated "used by a run" column was added; this is derived from existing
   `PayrollRunLine`/`PayrollRun`/`PayrollPeriod` data.
 - **Pay-component catalogue CRUD** — code/name/type/active-status management for `PayComponent`,
@@ -997,12 +1066,12 @@ runs may reference the same original run. Until GDB supplies this, an adjustment
 `corrects_run_id` — no automatic netting or display consolidation is implemented.
 
 **Known limitation: correcting historical compensation.** Compensation resolution (Section G) is
-date-based — `CompensationResolver` selects the `EmployeeCompensation` effective as of the
-*period's own start date* — and an adjustment run always shares its original's `period_id`
-(above). This means that if nothing about an employee's compensation records has changed, an
-adjustment run's calculation reproduces the *same* figures as the original, since it resolves the
-identical compensation as of the identical date; the engine does not infer what "should" have
-been different. Producing an actually-different, corrected figure requires the underlying
+date-based — `CompensationResolver` selects the `EmployeeCompensation` whose effective range
+overlaps the period being processed (Payroll V1 completion review fix) — and an adjustment run
+always shares its original's `period_id` (above). This means that if nothing about an employee's
+compensation records has changed, an adjustment run's calculation reproduces the *same* figures
+as the original, since it resolves the identical compensation record for the identical period;
+the engine does not infer what "should" have been different. Producing an actually-different, corrected figure requires the underlying
 `EmployeeCompensation`/`CompensationComponent` data itself to be corrected first - and because the
 calculation engine already treats two compensation records whose effective ranges overlap for the
 same employee/date as an ambiguous, hard-failing state (Section H, "calculation failure/

@@ -39,6 +39,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -242,7 +243,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 1, 1),
                 List.of(earning("BASIC_SALARY", "50000.00"), deductionWithRule("PF", code)));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 1);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -264,7 +265,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 2, 1),
                 List.of(earning("BASIC_SALARY", "40000.00"), earning("HRA", "10000.00"), deductionWithRule("PF", code)));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 2);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -286,7 +287,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 3, 1),
                 List.of(earning("BASIC_SALARY", "15000.00"), deductionWithRule("PF", code)));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 3);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -304,7 +305,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 4, 1),
                 List.of(earning("BASIC_SALARY", "20000.00"), deductionWithRule("PF", "NO_SUCH_RULE_" + UUID.randomUUID())));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 4);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -322,7 +323,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 5, 1),
                 List.of(earning("BASIC_SALARY", "20000.00"), deductionWithRule("TDS", "NO_SUCH_TDS_RULE_" + UUID.randomUUID())));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 5);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -338,7 +339,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 6, 1),
                 List.of(earning("BASIC_SALARY", "20000.00"), deduction("TDS", "0.00")));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 6);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -354,7 +355,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 7, 1),
                 List.of(earning("BASIC_SALARY", "20000.00"), deduction("PF", "2400.00")));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 7);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -382,7 +383,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 8, 1),
                 List.of(earning("BASIC_SALARY", "20000.00"), deductionWithRule("PROFESSIONAL_TAX", code)));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 8);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -405,7 +406,7 @@ class StatutoryRuleIntegrationTest {
         fullyApplicableStatutoryProfile(employeeRef);
         createCompensation(employeeRef, LocalDate.of(year, 1, 1),
                 List.of(earning("BASIC_SALARY", "20000.00"), deductionWithRule("PF", code)));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
 
         // Run A: period in March, squarely inside v1's effective range.
         UUID firstPeriodId = createPeriod(year, 3);
@@ -462,7 +463,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 11, 1),
                 List.of(earning("BASIC_SALARY", "25000.00"), deductionWithRule("PROFESSIONAL_TAX", code)));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 11);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -490,7 +491,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 12, 1),
                 List.of(earning("BASIC_SALARY", "900000.00"), deductionWithRule("TDS", code)));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 12);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -516,7 +517,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 12;
         createCompensation(employeeRef, LocalDate.of(year, 1, 1),
                 List.of(earning("BASIC_SALARY", "50000.00"), deductionWithRule("TDS", code)));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 1);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());
@@ -551,7 +552,7 @@ class StatutoryRuleIntegrationTest {
         int year = Year.now().getValue() + 10;
         createCompensation(employeeRef, LocalDate.of(year, 10, 1),
                 List.of(earning("BASIC_SALARY", "50000.00"), deduction("PF", "6000.00")));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 10);
         PayrollRunDtos.Response run = createRun(periodId);
         processRun(run.id());

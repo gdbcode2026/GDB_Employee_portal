@@ -146,7 +146,7 @@ class PayrollAdjustmentIntegrationTest {
 
     private PayrollRunDtos.Response finalizedOriginalRun(int month, UUID employeeRef, String maker, String checker) throws Exception {
         demoCompensation(employeeRef, LocalDate.of(Year.now().getValue() + 4, 1, 1));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         stubDocumentServiceUpload();
 
         UUID periodId = createPeriod(Year.now().getValue() + 4, month);
@@ -181,7 +181,7 @@ class PayrollAdjustmentIntegrationTest {
     void anAdjustmentCanOnlyBeCreatedAgainstAFinalizedOriginalRun() throws Exception {
         UUID employeeRef = UUID.randomUUID();
         demoCompensation(employeeRef, LocalDate.of(Year.now().getValue() + 4, 1, 1));
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(Year.now().getValue() + 4, 2);
         PayrollRunDtos.Response draftRun = createRun(periodId, "maker-1");
 
@@ -284,7 +284,7 @@ class PayrollAdjustmentIntegrationTest {
         compensationComponentRepository.save(new CompensationComponent(UUID.randomUUID(), compensation.getId(), "PF",
                 CompensationComponentType.DEDUCTION, new BigDecimal("6000.00"), null, "hr-1", Instant.now()));
 
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         stubDocumentServiceUpload();
         UUID periodId = createPeriod(Year.now().getValue() + 4, 8);
         PayrollRunDtos.Response original = createRun(periodId, "maker-1");

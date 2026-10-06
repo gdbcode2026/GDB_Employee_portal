@@ -108,7 +108,8 @@ public class PayrollRunService {
         });
 
         Instant now = Instant.now();
-        PayrollRun run = new PayrollRun(UUID.randomUUID(), period.getId(), employeeClient.resolveActiveEmployeeRefs(), actor, now);
+        PayrollRun run = new PayrollRun(UUID.randomUUID(), period.getId(),
+                employeeClient.resolveEmployeeRefsEligibleForPeriod(period.getStartDate(), period.getEndDate()), actor, now);
         repository.save(run);
         auditLog.runCreated(run.getId(), actor, correlationId);
         return toResponse(run);
@@ -117,9 +118,10 @@ public class PayrollRunService {
     /**
      * Section K: creates a new {@code ADJUSTMENT} run against an already-{@code FINALIZED}
      * {@code originalRunId}, which is never mutated here - only read for its period/status.
-     * Reuses the exact same technical employee-snapshot mechanism as a regular run (item 4): no
-     * new eligibility rule is invented, and no accounting/netting policy is applied - whatever
-     * corrected compensation is effective for a snapshot employee is what {@link
+     * Reuses the exact same technical employee-snapshot mechanism as a regular run (item 4,
+     * including the Payroll V1 terminated-employee eligibility fix below): no new eligibility
+     * rule is invented, and no accounting/netting policy is applied - whatever corrected
+     * compensation is effective for a snapshot employee is what {@link
      * com.growdigitalbridge.payroll.calculation.PayrollCalculationEngine} (called unchanged, via
      * {@link #process}) will resolve, producing a positive or negative line exactly as Section
      * K's signed-adjustment-lines model describes.
@@ -136,10 +138,13 @@ public class PayrollRunService {
             throw new ConflictException(
                     "An adjustment run against payroll run " + originalRunId + " is already in progress.");
         }
+        PayrollPeriod originalPeriod = periodRepository.findById(original.getPeriodId())
+                .orElseThrow(() -> new ResourceNotFoundException("Payroll period " + original.getPeriodId() + " was not found."));
 
         Instant now = Instant.now();
         PayrollRun adjustment = new PayrollRun(UUID.randomUUID(), original.getPeriodId(), original.getId(),
-                employeeClient.resolveActiveEmployeeRefs(), actor, now);
+                employeeClient.resolveEmployeeRefsEligibleForPeriod(originalPeriod.getStartDate(), originalPeriod.getEndDate()),
+                actor, now);
         repository.save(adjustment);
         auditLog.adjustmentRunCreated(adjustment.getId(), original.getId(), actor, correlationId);
         return toResponse(adjustment);

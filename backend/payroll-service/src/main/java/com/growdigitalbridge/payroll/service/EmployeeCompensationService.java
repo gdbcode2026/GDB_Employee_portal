@@ -43,10 +43,11 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>Historical immutability</b> (item 1): once a record's effective range has actually been
  * used to calculate at least one {@code FINALIZED} run's line for that employee - i.e. a
- * finalized run's period start date falls within the record's {@code [effectiveFrom, effectiveTo]}
- * - no further update to it (or its components) is permitted. This is checked by walking the
- * employee's own {@link PayrollRunLine} history rather than a dedicated usage-tracking column,
- * since no such column exists and none is needed for this check's accuracy.
+ * finalized run's period *overlaps* the record's {@code [effectiveFrom, effectiveTo]} range,
+ * mirroring {@code CompensationResolver}'s own overlap-based resolution exactly (Payroll V1
+ * completion review fix) - no further update to it (or its components) is permitted. This is
+ * checked by walking the employee's own {@link PayrollRunLine} history rather than a dedicated
+ * usage-tracking column, since no such column exists and none is needed for this check's accuracy.
  */
 @Service
 public class EmployeeCompensationService {
@@ -171,9 +172,12 @@ public class EmployeeCompensationService {
     }
 
     /**
-     * True if a {@code FINALIZED} run's period start date ever fell within this record's
-     * effective range for this employee - i.e. {@code CompensationResolver} would have resolved
-     * this exact record for that run.
+     * True if a {@code FINALIZED} run's period ever overlapped this record's effective range for
+     * this employee - i.e. {@code CompensationResolver} would have resolved this exact record for
+     * that run. Mirrors {@code EmployeeCompensationRepository.findEffectiveForEmployee}'s overlap
+     * condition exactly (Payroll V1 completion review fix) rather than the resolver's previous
+     * period-start-only check, so a mid-period-joiner's compensation that has already paid an
+     * employee is correctly locked just as reliably as one effective from a period's first day.
      */
     private boolean hasBeenUsedByFinalizedRun(EmployeeCompensation compensation) {
         for (PayrollRunLine line : lineRepository.findByEmployeeRef(compensation.getEmployeeRef())) {
@@ -185,10 +189,9 @@ public class EmployeeCompensationService {
             if (period == null) {
                 continue;
             }
-            LocalDate periodStart = period.getStartDate();
-            boolean withinRange = !periodStart.isBefore(compensation.getEffectiveFrom())
-                    && (compensation.getEffectiveTo() == null || !periodStart.isAfter(compensation.getEffectiveTo()));
-            if (withinRange) {
+            boolean overlaps = !compensation.getEffectiveFrom().isAfter(period.getEndDate())
+                    && (compensation.getEffectiveTo() == null || !compensation.getEffectiveTo().isBefore(period.getStartDate()));
+            if (overlaps) {
                 return true;
             }
         }

@@ -33,6 +33,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -195,7 +196,7 @@ class CompensationManagementIntegrationTest {
         UUID employeeRef = UUID.randomUUID();
         int year = Year.now().getValue() + 5;
         EmployeeCompensationDtos.Response created = createCompensation(employeeRef, LocalDate.of(year, 1, 1), null);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
 
         UUID periodId = createPeriod(year, 1);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
@@ -344,7 +345,7 @@ class CompensationManagementIntegrationTest {
 
         int year = Year.now().getValue() + 5;
         createCompensation(employeeRef, LocalDate.of(year, 2, 1), null);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 2);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
 
@@ -364,7 +365,7 @@ class CompensationManagementIntegrationTest {
 
         int year = Year.now().getValue() + 5;
         createCompensation(employeeRef, LocalDate.of(year, 3, 1), null);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 3);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
 
@@ -389,7 +390,7 @@ class CompensationManagementIntegrationTest {
 
         int year = Year.now().getValue() + 5;
         createCompensation(employeeRef, LocalDate.of(year, 4, 1), null);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 4);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
 
@@ -403,7 +404,7 @@ class CompensationManagementIntegrationTest {
         UUID employeeRef = UUID.randomUUID();
         int year = Year.now().getValue() + 5;
         createCompensation(employeeRef, LocalDate.of(year, 5, 1), null);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 5);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
 
@@ -424,7 +425,7 @@ class CompensationManagementIntegrationTest {
         UUID employeeRef = UUID.randomUUID();
         int year = Year.now().getValue() + 5;
         createCompensation(employeeRef, LocalDate.of(year, 6, 1), null);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 6);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
         mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process").with(jwt().authorities(PROCESS)))
@@ -450,7 +451,7 @@ class CompensationManagementIntegrationTest {
         UUID employeeRef = UUID.randomUUID();
         int year = Year.now().getValue() + 5;
         createCompensation(employeeRef, LocalDate.of(year, 7, 1), null);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         UUID periodId = createPeriod(year, 7);
         PayrollRunDtos.Response run = createRun(periodId, "maker-1");
         mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process").with(jwt().authorities(PROCESS)))
@@ -464,6 +465,120 @@ class CompensationManagementIntegrationTest {
 
         mockMvc.perform(post("/api/v1/payroll/exceptions/" + exceptionId + "/resolve").with(jwt().authorities(READ_ALL)))
                 .andExpect(status().isForbidden());
+    }
+
+    // --- Mid-period compensation resolution (Payroll V1 completion review fix) ---
+    // CompensationResolver now resolves an ACTIVE compensation record whose effective range
+    // OVERLAPS the payroll period, not only one already effective at the period's first day.
+
+    @Test
+    void compensationEffectiveBeforePeriodStartResolvesAndProducesALine() throws Exception {
+        UUID employeeRef = UUID.randomUUID();
+        int year = Year.now().getValue() + 5;
+        createCompensation(employeeRef, LocalDate.of(year, 1, 1), null);
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
+        UUID periodId = createPeriod(year, 8);
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process").with(jwt().authorities(PROCESS)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lineCount").value(1));
+    }
+
+    @Test
+    void compensationEffectiveExactlyOnPeriodStartResolvesAndProducesALine() throws Exception {
+        UUID employeeRef = UUID.randomUUID();
+        int year = Year.now().getValue() + 5;
+        UUID periodId = createPeriod(year, 9);
+        createCompensation(employeeRef, LocalDate.of(year, 9, 1), null);
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process").with(jwt().authorities(PROCESS)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lineCount").value(1));
+    }
+
+    /**
+     * The defect this fix resolves: a new joiner (or any compensation revision) taking effect
+     * partway through the period must still produce a {@code PayrollRunLine} - never silently
+     * excluded with {@code NO_EFFECTIVE_COMPENSATION} merely because {@code effectiveFrom} falls
+     * after the period's first day.
+     */
+    @Test
+    void compensationEffectiveDuringThePeriodResolvesAndProducesALineInsteadOfNoEffectiveCompensation() throws Exception {
+        UUID employeeRef = UUID.randomUUID();
+        int year = Year.now().getValue() + 5;
+        UUID periodId = createPeriod(year, 10);
+        createCompensation(employeeRef, LocalDate.of(year, 10, 15), null); // mid-period joiner
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process").with(jwt().authorities(PROCESS)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lineCount").value(1));
+
+        MvcResult exceptions = mockMvc.perform(get("/api/v1/payroll/exceptions").param("runId", run.id().toString())
+                        .with(jwt().authorities(READ_ALL)))
+                .andExpect(status().isOk()).andReturn();
+        var items = objectMapper.readTree(exceptions.getResponse().getContentAsString()).get("items");
+        for (var item : items) {
+            assertThat(item.get("reason").asText()).isNotEqualTo("NO_EFFECTIVE_COMPENSATION");
+        }
+    }
+
+    @Test
+    void compensationEffectiveAfterThePeriodDoesNotResolveAndStillProducesNoEffectiveCompensation() throws Exception {
+        UUID employeeRef = UUID.randomUUID();
+        int year = Year.now().getValue() + 5;
+        UUID periodId = createPeriod(year, 11);
+        createCompensation(employeeRef, LocalDate.of(year, 12, 1), null); // starts the month after this period ends
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process").with(jwt().authorities(PROCESS)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lineCount").value(0))
+                .andExpect(jsonPath("$.exceptionCount").value(1));
+
+        mockMvc.perform(get("/api/v1/payroll/exceptions").param("runId", run.id().toString()).with(jwt().authorities(READ_ALL)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].reason").value("NO_EFFECTIVE_COMPENSATION"));
+    }
+
+    /**
+     * Resolving by range-overlap (rather than a single point in time) has one unavoidable
+     * consequence: two individually-valid, sequential compensation records (non-overlapping with
+     * EACH OTHER, so {@code assertNoOverlap} allows both) can each independently overlap the SAME
+     * payroll period - e.g. an old record ending mid-month and a new one starting mid-month.
+     * Deciding which one (or how to split between them) is a proration question this fix does not
+     * invent an answer to; the existing ambiguity-handling mechanism (more than one row resolves)
+     * must still fail the run safely rather than silently guess - exactly as it already does for a
+     * literal date-range overlap.
+     */
+    @Test
+    void twoSequentialCompensationRecordsBothOverlappingTheSamePeriodFailCalculationSafelyAsAmbiguous() throws Exception {
+        UUID employeeRef = UUID.randomUUID();
+        int year = Year.now().getValue() + 5;
+        UUID periodId = createPeriod(year, 12);
+        createCompensation(employeeRef, LocalDate.of(year, 12, 1), LocalDate.of(year, 12, 10));
+        var secondRequest = new EmployeeCompensationDtos.CreateRequest(employeeRef, LocalDate.of(year, 12, 15), null,
+                List.of(earning("BASIC_SALARY", "60000.00")));
+        mockMvc.perform(post("/api/v1/payroll/compensations")
+                        .with(jwt().authorities(PROCESS))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(secondRequest)))
+                .andExpect(status().isCreated());
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
+        PayrollRunDtos.Response run = createRun(periodId, "maker-1");
+
+        mockMvc.perform(post("/api/v1/payroll/runs/" + run.id() + "/process").with(jwt().authorities(PROCESS)))
+                .andExpect(status().is5xxServerError());
+
+        MvcResult afterFailure = mockMvc.perform(get("/api/v1/payroll/runs/" + run.id()).with(jwt().authorities(READ_ALL)))
+                .andExpect(status().isOk()).andReturn();
+        PayrollRunDtos.Response reread = objectMapper.readValue(afterFailure.getResponse().getContentAsString(), PayrollRunDtos.Response.class);
+        assertThat(reread.status().name()).isEqualTo("CALCULATION_FAILED");
     }
 
     // --- shared helpers ---

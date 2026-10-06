@@ -139,7 +139,7 @@ class PayslipIntegrationTest {
      * ambiguous (the same real bug class {@code PayrollIntegrationTest} exercises deliberately).
      */
     private PayrollRunDtos.Response finalizeAnotherRunForTheSameEmployee(int month, UUID employeeRef, String maker, String checker) throws Exception {
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(employeeRef));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(employeeRef));
         stubDocumentServiceUpload();
 
         UUID periodId = createPeriod(Year.now().getValue() + 3, month);

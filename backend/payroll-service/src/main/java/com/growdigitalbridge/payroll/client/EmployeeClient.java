@@ -18,9 +18,9 @@ import org.springframework.web.client.RestClientException;
 /**
  * Calls Employee Service directly (bounded, synchronous, one hop - the "Employee lookup while
  * creating a domain record" case documented in docs/architecture/COMMUNICATION.md) to resolve
- * the current active-employee set at payroll-run creation time (PAYROLL_REQUIREMENTS.md Section
- * I), and one employee's profile at payslip-generation time (Section M). The caller's own bearer
- * token is relayed unmodified (on-behalf-of), exactly like every other service's own
+ * the employee set eligible for a payroll run at run-creation time (PAYROLL_REQUIREMENTS.md
+ * Section I), and one employee's profile at payslip-generation time (Section M). The caller's own
+ * bearer token is relayed unmodified (on-behalf-of), exactly like every other service's own
  * EmployeeClient. If Employee Service is unreachable, this fails closed (empty set/{@link
  * Optional#empty()}) rather than guessing.
  */
@@ -43,27 +43,79 @@ public class EmployeeClient {
             return Set.of();
         }
         try {
-            List<UUID> refs = new ArrayList<>();
-            int page = 0;
-            long total;
-            do {
-                PageResponse response = restClient.get()
-                        .uri("/api/v1/employees?status=ACTIVE&page={page}&size={size}", page, PAGE_SIZE)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                        .retrieve()
-                        .body(PageResponse.class);
-                if (response == null || response.items() == null) {
-                    break;
-                }
-                response.items().forEach(item -> refs.add(item.id()));
-                total = response.page() == null ? refs.size() : response.page().total();
-                page++;
-            } while ((long) refs.size() < total);
-            return Set.copyOf(refs);
+            return Set.copyOf(fetchEmployeeRefsByStatus(token, "ACTIVE"));
         } catch (RestClientException e) {
             log.warn("Failed to resolve the active-employee set from Employee Service: {}", e.getMessage());
             return Set.of();
         }
+    }
+
+    /**
+     * Resolves every employee eligible for a payroll run covering {@code [periodStart,
+     * periodEnd]} (Payroll V1 terminated-employee handling, GDB business decision Option A: "a
+     * terminated employee must remain eligible for the payroll period in which they worked").
+     * Eligibility is: every currently {@code ACTIVE} employee (unchanged - a still-active
+     * employee is always included), plus any {@code INACTIVE} employee whose employment
+     * ({@code GET /employees/{id}}'s existing {@code employment.startDate}/{@code endDate} -
+     * already-existing fields, nothing new invented) overlapped the period: {@code startDate <=
+     * periodEnd} and ({@code endDate} is {@code null} or {@code endDate >= periodStart}). An
+     * employee who terminated before the period began, or who joined after it ended, is
+     * correctly excluded either way.
+     *
+     * <p>Uses only Employee Service's already-existing {@code GET /employees?status=...} and
+     * {@code GET /employees/{id}} endpoints - no new Employee Service capability, no cross-service
+     * database access. Fails closed per candidate: an {@code INACTIVE} employee whose employment
+     * detail cannot be resolved (Employee Service error, missing employment) is excluded, never
+     * guessed into eligibility.
+     */
+    public Set<UUID> resolveEmployeeRefsEligibleForPeriod(LocalDate periodStart, LocalDate periodEnd) {
+        String token = CurrentBearerToken.resolve();
+        if (token == null) {
+            return Set.of();
+        }
+        try {
+            List<UUID> eligible = new ArrayList<>(fetchEmployeeRefsByStatus(token, "ACTIVE"));
+            for (UUID candidate : fetchEmployeeRefsByStatus(token, "INACTIVE")) {
+                resolveEmployeeById(candidate)
+                        .map(EmployeeProfile::employment)
+                        .filter(employment -> overlapsPeriod(employment, periodStart, periodEnd))
+                        .ifPresent(employment -> eligible.add(candidate));
+            }
+            return Set.copyOf(eligible);
+        } catch (RestClientException e) {
+            log.warn("Failed to resolve the payroll-eligible employee set from Employee Service: {}", e.getMessage());
+            return Set.of();
+        }
+    }
+
+    private boolean overlapsPeriod(EmploymentSummary employment, LocalDate periodStart, LocalDate periodEnd) {
+        if (employment == null || employment.startDate() == null) {
+            return false;
+        }
+        boolean startedOnOrBeforePeriodEnd = !employment.startDate().isAfter(periodEnd);
+        boolean stillOngoingOrEndedOnOrAfterPeriodStart =
+                employment.endDate() == null || !employment.endDate().isBefore(periodStart);
+        return startedOnOrBeforePeriodEnd && stillOngoingOrEndedOnOrAfterPeriodStart;
+    }
+
+    private List<UUID> fetchEmployeeRefsByStatus(String token, String status) {
+        List<UUID> refs = new ArrayList<>();
+        int page = 0;
+        long total;
+        do {
+            PageResponse response = restClient.get()
+                    .uri("/api/v1/employees?status={status}&page={page}&size={size}", status, page, PAGE_SIZE)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                    .retrieve()
+                    .body(PageResponse.class);
+            if (response == null || response.items() == null) {
+                break;
+            }
+            response.items().forEach(item -> refs.add(item.id()));
+            total = response.page() == null ? refs.size() : response.page().total();
+            page++;
+        } while ((long) refs.size() < total);
+        return refs;
     }
 
     /**
@@ -128,7 +180,7 @@ public class EmployeeClient {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record EmploymentSummary(String jobTitle, LocalDate startDate) { }
+    public record EmploymentSummary(String jobTitle, LocalDate startDate, LocalDate endDate) { }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record SelfResponse(UUID id) { }

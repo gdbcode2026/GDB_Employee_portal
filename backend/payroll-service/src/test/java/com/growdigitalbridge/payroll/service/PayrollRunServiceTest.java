@@ -4,6 +4,7 @@ import com.growdigitalbridge.payroll.api.dto.PayrollRunDtos;
 import com.growdigitalbridge.payroll.calculation.CalculationResult;
 import com.growdigitalbridge.payroll.calculation.PayrollCalculationEngine;
 import com.growdigitalbridge.payroll.client.EmployeeClient;
+import com.growdigitalbridge.payroll.domain.PayrollPeriod;
 import com.growdigitalbridge.payroll.domain.PayrollRun;
 import com.growdigitalbridge.payroll.domain.PayrollRunStatus;
 import com.growdigitalbridge.payroll.repository.PayrollExceptionRepository;
@@ -12,6 +13,7 @@ import com.growdigitalbridge.payroll.repository.PayrollRunLineRepository;
 import com.growdigitalbridge.payroll.repository.PayrollRunRepository;
 import com.growdigitalbridge.payroll.service.exception.CalculationFailedException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -227,7 +229,10 @@ class PayrollRunServiceTest {
         PayrollRunStatus originalStatusBefore = original.getStatus();
         when(repository.findById(id)).thenReturn(Optional.of(original));
         when(repository.existsByCorrectsRunIdAndStatusNot(id, PayrollRunStatus.FINALIZED)).thenReturn(false);
-        when(employeeClient.resolveActiveEmployeeRefs()).thenReturn(Set.of(UUID.randomUUID(), UUID.randomUUID()));
+        when(periodRepository.findById(original.getPeriodId())).thenReturn(Optional.of(
+                new PayrollPeriod(original.getPeriodId(), 2031, 1, LocalDate.of(2031, 1, 1), LocalDate.of(2031, 1, 31),
+                        null, "hr-1", Instant.now())));
+        when(employeeClient.resolveEmployeeRefsEligibleForPeriod(any(), any())).thenReturn(Set.of(UUID.randomUUID(), UUID.randomUUID()));
 
         PayrollRunDtos.Response response = service().createAdjustment(id, "maker-2", null);
 
