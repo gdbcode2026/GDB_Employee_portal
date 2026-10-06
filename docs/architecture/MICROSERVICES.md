@@ -42,7 +42,7 @@ All owning services are Spring Boot resource servers. They validate authorizatio
 | Document | Upload/metadata/authorized-download APIs; workload-identity upload-on-behalf-of API for authorized service clients (e.g. Payroll), see `docs/api/API.md`'s Documents row | `DOCUMENT_UPLOADED`; consumes lifecycle cleanup | No binary files in database. Scan gate/private object storage; object-store failure is handled safely. |
 | Asset | Asset/assignment/request APIs; consumes workflow completion | `ASSET_ASSIGNED`; consumes lifecycle | No procurement/accounting. Custody transitions audited/idempotent. |
 | Workflow | Start/decision/cancel/task APIs; consumes request events | `WORKFLOW_COMPLETED`; consumes cancellation | No leave/expense/attendance truth. Terminal results must be deterministic and duplicate-safe. |
-| Notification | Preference/delivery APIs; consumes subscribed events | Delivery operational events | No source business state. Delivery failure cannot block domain commits. |
+| Notification | In-app notification APIs (V1); consumes a confirmed-recipient subset of domain events | None yet (V1 is in-app read/mark-read only; no delivery/preference events published) | No source business state. Preferences, templates, multi-channel delivery (email/SMS/push), and digest scheduling remain unimplemented - see the service's own `DomainEventListener` Javadoc for the full per-event inclusion/exclusion rationale. |
 | Audit | Restricted search API; consumes audit events/calls | None required | No authorization source. Append-only/redacted/tamper-resistant records. |
 | Reporting (deferred) | Report APIs; consumes approved events | None required | No transactional write-back. Projection lag must be visible. |
 

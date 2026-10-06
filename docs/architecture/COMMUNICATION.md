@@ -22,23 +22,23 @@ Every event has envelope fields `eventId UUID`, `eventType`, `eventVersion integ
 
 | Event v1 | Producer | Consumers | Minimum payload |
 |---|---|---|---|
-| `EMPLOYEE_CREATED` | Employee | Identity*, Organization, Workflow, Notification, Audit, Reporting* | employee/employment ID, status |
-| `EMPLOYEE_UPDATED` | Employee | Organization, Notification, Audit, Reporting* | employee ID, non-sensitive changed-field names |
+| `EMPLOYEE_CREATED` | Employee | Identity*, Organization, Workflow, Notification*, Audit, Reporting* | employee/employment ID, status |
+| `EMPLOYEE_UPDATED` | Employee | Organization, Notification*, Audit, Reporting* | employee ID, non-sensitive changed-field names |
 | `EMPLOYEE_DEACTIVATED` | Employee | Identity*, Asset, Document, Workflow, Audit, Reporting* | employee ID, effective time |
 | `LEAVE_REQUESTED` | Leave | Workflow, Notification, Audit, Reporting* | request/employee/type IDs, start/end dates |
 | `LEAVE_APPROVED` | Leave | Attendance, Notification, Audit, Reporting*, Payroll* | request/employee ID, approved units |
 | `LEAVE_REJECTED` | Leave | Notification, Audit, Reporting* | request/employee ID, reason code O |
-| `ATTENDANCE_FINALIZED` | Attendance | Notification, Audit, Reporting*, Payroll* | attendance/employee ID, work date/status |
+| `ATTENDANCE_FINALIZED` | Attendance | Notification*, Audit, Reporting*, Payroll* | attendance/employee ID, work date/status |
 | `ATTENDANCE_REGULARIZATION_APPROVED` | Attendance | Notification, Audit, Reporting* | request/attendance/employee IDs |
 | `EXPENSE_SUBMITTED` | Expense | Workflow, Notification, Audit, Reporting* | claim/employee ID, currency, total |
 | `EXPENSE_APPROVED` | Expense | Notification, Audit, Reporting* | claim/employee ID, approved total/currency |
-| `PAYROLL_PROCESSED` | Payroll* | Notification, Audit, Reporting* | payroll run/period ID, employee count |
-| `PAYSLIP_GENERATED` | Payroll* | Notification, Audit, Reporting* | payslip/payroll run/employee ID |
-| `DOCUMENT_UPLOADED` | Document | Notification, Audit | document ID, owner ID O, classification, scan status |
-| `ASSET_ASSIGNED` | Asset | Notification, Audit, Reporting* | asset/assignment/employee IDs |
-| `WORKFLOW_COMPLETED` | Workflow | Leave, Attendance, Expense, Asset, Document, Notification, Audit | workflow ID, subject type/ID, outcome, decision time |
+| `PAYROLL_PROCESSED` | Payroll* | Notification*, Audit, Reporting* | payroll run/period ID, employee count |
+| `PAYSLIP_GENERATED` | Payroll* | Notification*, Audit, Reporting* | payslip/payroll run/employee ID |
+| `DOCUMENT_UPLOADED` | Document | Notification*, Audit | document ID, owner ID O, classification, scan status |
+| `ASSET_ASSIGNED` | Asset | Notification*, Audit, Reporting* | asset/assignment/employee IDs |
+| `WORKFLOW_COMPLETED` | Workflow | Leave, Attendance, Expense, Asset, Document, Notification*, Audit | workflow ID, subject type/ID, outcome, decision time |
 
-`*` denotes a deferred consumer/service or a consumer only activated when its integration is approved.
+`*` denotes a deferred consumer/service or a consumer only activated when its integration is approved. For Notification specifically (V1 in-app implementation): `LEAVE_REQUESTED`/`LEAVE_APPROVED`/`LEAVE_REJECTED`/`EXPENSE_SUBMITTED`/`EXPENSE_APPROVED`/`ATTENDANCE_REGULARIZATION_APPROVED` are the six events actually consumed today, because each one's real payload (verified against its producer's code) names an unambiguous employee recipient. The `Notification*` rows above remain deferred: `WORKFLOW_COMPLETED`'s documented minimum payload carries `subjectRef` (a foreign reference to the owning domain's own request record) and no employee ID at all, and `DOCUMENT_UPLOADED` is a single generic event for every document type (not a distinct policy-publication event) - both would need a new cross-domain lookup to resolve a recipient, which this V1 increment does not add. `EMPLOYEE_CREATED`/`EMPLOYEE_UPDATED`/`ATTENDANCE_FINALIZED`/`PAYROLL_PROCESSED`/`PAYSLIP_GENERATED`/`ASSET_ASSIGNED` were simply out of this increment's explicit starter scope.
 
 `PAYSLIP_GENERATED` is produced once per generated payslip (per-payslip granularity), distinct
 from the aggregate `PAYROLL_PROCESSED`, which it supplements rather than replaces — both remain

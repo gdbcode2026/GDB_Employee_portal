@@ -36,7 +36,7 @@ All portal APIs are routed as `/api/v1`. Except OIDC discovery/login/callback, r
 |  | `POST /assets`, `POST /assets/{id}/assignments`, `POST /assignments/{id}/return` | Inventory/custody; `asset.manage/assign`; validate asset state and idempotency. |
 | Workflows | `GET /workflows/tasks/me`, `GET /workflows/{id}` | Own assigned/scoped tasks; `workflow.read.self/team/all`. |
 |  | `POST /workflows/{id}/tasks/{taskId}/decisions`, `POST /workflows/{id}/cancel` | Decision/cancel; `workflow.decide.assigned`; decision/comment; validate active assignment/delegation/terminal state. |
-| Notifications | `GET /notifications`, `PATCH /notification-preferences/me` | Own messages/preferences; `notification.read.self`; pagination, channel/enabled body. |
+| Notifications | `GET /notifications`, `GET /notifications/{id}`, `POST /notifications/{id}/read`, `POST /notifications/read-all` | Own in-app notifications only; `notification.read.self`; pagination plus an `unreadCount`. Recipient is always resolved server-side from the caller, never a client-supplied ID. Email/SMS/push, templates, preferences, and digest scheduling remain unimplemented (V1 is in-app only). |
 | Audit | `GET /audit/events` | Restricted search; `audit.read`; filters actor/resource/action/time/correlation, paginated and redacted. |
 | Reporting* | `GET /reports`, `POST /reports/{id}/runs` | Scoped report/run; `report.read.self/team/all`, `report.export`; filters/report parameters validated against approved definition. |
 

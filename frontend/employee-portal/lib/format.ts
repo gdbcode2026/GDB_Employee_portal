@@ -47,7 +47,7 @@ export function titleCase(value: string): string {
 export function badgeToneForStatus(status: string): "success" | "warning" | "danger" | "info" | "neutral" {
   const positive = new Set(["APPROVED", "FINALIZED", "DONE", "COMPLETED", "PUBLISHED", "AVAILABLE", "ACTIVE", "REIMBURSED", "DECIDED"]);
   const negative = new Set(["REJECTED", "CANCELLED", "RETIRED", "INACTIVE"]);
-  const warning = new Set(["PENDING", "SUBMITTED", "DRAFT", "ASSIGNED", "IN_PROGRESS", "TODO"]);
+  const warning = new Set(["PENDING", "SUBMITTED", "DRAFT", "ASSIGNED", "IN_PROGRESS", "TODO", "UNREAD"]);
   if (positive.has(status)) return "success";
   if (negative.has(status)) return "danger";
   if (warning.has(status)) return "warning";

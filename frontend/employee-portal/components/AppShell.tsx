@@ -20,9 +20,10 @@ interface AppShellProps {
   children: React.ReactNode;
   displayName: string | null;
   jobTitle: string | null;
+  unreadNotificationCount?: number | null;
 }
 
-export function AppShell({ children, displayName, jobTitle }: AppShellProps) {
+export function AppShell({ children, displayName, jobTitle, unreadNotificationCount }: AppShellProps) {
   const pathname = usePathname() ?? "/";
   const router = useRouter();
   const [navOpen, setNavOpen] = useState(false);
@@ -100,8 +101,13 @@ export function AppShell({ children, displayName, jobTitle }: AppShellProps) {
           </div>
 
           <div className="app-header-actions">
-            <Link href="/notifications" className="icon-btn" aria-label="Notifications">
+            <Link
+              href="/notifications"
+              className="icon-btn"
+              aria-label={unreadNotificationCount ? `Notifications (${unreadNotificationCount} unread)` : "Notifications"}
+            >
               <Icon name="bell" size={19} />
+              {!!unreadNotificationCount && unreadNotificationCount > 0 && <span className="dot" aria-hidden="true" />}
             </Link>
             <Link href="/profile" className="header-profile">
               <span className="avatar">{displayName ? initialsFor(displayName) : "?"}</span>

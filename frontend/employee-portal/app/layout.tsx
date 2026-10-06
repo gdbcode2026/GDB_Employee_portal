@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./styles.css";
 import { AppShell } from "@/components/AppShell";
 import { apiClient } from "@/lib/api/client";
-import type { EmployeeResponse } from "@/lib/api/types";
+import type { EmployeeResponse, NotificationListResponse } from "@/lib/api/types";
 
 export const metadata: Metadata = {
   title: "GDB Employee Portal",
@@ -17,8 +17,17 @@ async function currentEmployee(): Promise<EmployeeResponse | null> {
   }
 }
 
+async function unreadNotificationCount(): Promise<number | null> {
+  try {
+    const response = await apiClient.get<NotificationListResponse>("/api/v1/notifications?size=1");
+    return response.unreadCount;
+  } catch {
+    return null;
+  }
+}
+
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const employee = await currentEmployee();
+  const [employee, unreadCount] = await Promise.all([currentEmployee(), unreadNotificationCount()]);
   const displayName = employee ? `${employee.firstName} ${employee.lastName}` : null;
   const jobTitle = employee?.employment?.jobTitle ?? null;
 
@@ -28,7 +37,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <a className="skip-link" href="#main">
           Skip to content
         </a>
-        <AppShell displayName={displayName} jobTitle={jobTitle}>
+        <AppShell displayName={displayName} jobTitle={jobTitle} unreadNotificationCount={unreadCount}>
           {children}
         </AppShell>
       </body>

@@ -369,3 +369,29 @@ export interface Policy {
   createdAt: string;
   updatedAt: string;
 }
+
+// Mirrors backend/notification-service NotificationDtos field for field.
+export type NotificationType =
+  | "LEAVE_REQUESTED"
+  | "LEAVE_APPROVED"
+  | "LEAVE_REJECTED"
+  | "EXPENSE_SUBMITTED"
+  | "EXPENSE_APPROVED"
+  | "ATTENDANCE_REGULARIZATION_APPROVED";
+
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  sourceEventId: string;
+  read: boolean;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface NotificationListResponse {
+  items: Notification[];
+  page: PageMeta;
+  unreadCount: number;
+}
