@@ -162,10 +162,10 @@ required** — see its own entry below for why.
 
 | # | Report | Role(s) | Classification |
 |---|---|---|---|
-| 1 | Workforce / Headcount Summary | HR | MUST HAVE V1 |
+| 1 | Workforce / Headcount Summary | HR | **MUST HAVE V1 — implemented, with two confirmed limitations** (see "Implementation note" under D1) |
 | 2 | Leave Balance & Utilization Summary | HR, Manager (team-scoped) | **MUST HAVE V1 — implemented** (see "Implementation note" under D2) |
 | 3 | Payroll Cost Summary | Finance | MUST HAVE V1 (blocked on one small Payroll addition — see Section F/G) |
-| 4 | Expense Summary | Finance | MUST HAVE V1 |
+| 4 | Expense Summary | Finance | **MUST HAVE V1 — implemented, with a confirmed authorization gap** (see "Implementation note" under D4) |
 | 5 | Team Overview | Manager | **MUST HAVE V1 — implemented** (see "Implementation note" under D5) |
 | — | Employee self-report | Employee | **NOT REQUIRED NOW** — fully covered by existing `/me` endpoints + the existing Dashboard; RBAC grants Employee no `report.*` permission by default, and inventing one here would be adding scope nobody asked for. |
 
@@ -178,25 +178,81 @@ required** — see its own entry below for why.
   RBAC.md says gets "report permissions."
 - **Allowed roles**: HR (`report.read.all` or `report.read.team`/`.all` per Section G's open
   question); never Employee/Manager-scoped in this report specifically.
-- **Data source**: Employee Service (`GET /employees?status=`) + Organization Service
-  (`GET /organization/departments`, `/teams`) for the grouping structure. **Correction found while
-  implementing D5**: `GET /employees` does not actually accept `departmentId`/`teamId` filters
-  despite `docs/api/API.md` documenting them (`EmployeeController.list` only takes `status` and
-  `query`) — team scope is instead resolved entirely server-side from the caller's own identity
-  (`EmployeeAccessGuard.resolveListScope`, via Organization), with no team/department parameter at
-  all. For HR's org-wide D1, this means grouping by department/team must happen client-side after
-  fetching the full (`.all`-scoped) list and cross-referencing `GET /organization/chart`, not via
-  a server-side department/team filter.
-- **Filters**: department, team, employment status (`ACTIVE`/`INACTIVE`), employment type.
-- **Metrics**: headcount per department/team/status/employment type; total headcount.
-- **API needed**: none new, in principle — each count is one `GET /employees?departmentId=X&status=ACTIVE&size=1`
-  call read via `page.total`, iterated once per department/team returned by the org chart. This is
-  an N-calls pattern (small N for a single-company portal), consistent with the existing
-  Dashboard's own N-calls-per-page precedent. If department/team count grows enough to matter,
-  Employee Service could add one narrow `GET /employees/headcount?groupBy=department` aggregate —
-  a same-service addition, not a new reporting platform.
-- **Frontend**: one new report page, HR-only nav entry, composing the calls above exactly like
-  `app/page.tsx` already composes its own cards.
+- **Data source**: Employee Service (`GET /employees?status=`) only — see the implementation note
+  below for why Organization Service was dropped entirely, not just its filter parameters.
+- **Filters**: employment status (`ACTIVE`/`INACTIVE`) only — see limitations below for why
+  department, team, and employment-type filtering are not implemented.
+- **Metrics implemented**: total headcount; headcount by employment status (Active/Inactive).
+  Department/team/employment-type breakdowns are **not implemented** — see limitations.
+- **API needed**: none — two `GET /employees` calls (`?size=1` for the grand total, which also
+  doubles as the authorization anchor, and `?status=ACTIVE&size=1`), reading only `page.total`
+  from each. Inactive is derived by subtraction (the `EmployeeStatus` enum has exactly two values,
+  confirmed in `employee-service`'s own domain enum, so this is exact, not an estimate).
+- **Frontend**: one new report page, composing the two calls above.
+
+**Implementation note (built)**: implemented at
+`frontend/employee-portal/app/workforce-summary/page.tsx`, added to the "Overview" nav group, no
+backend changes. Authorization uses the same anchor technique as D2/D5 (`GET /employees`
+401s/403s correctly; Employee and Team Lead are reliably excluded) — see "Confirmed gap: HR vs.
+Manager cannot be distinguished by the frontend" below for the one requirement this does **not**
+fully satisfy.
+
+**Confirmed gap (much deeper than the D5 correction): there is no employee-to-department/team
+linkage anywhere in this system, not just a missing filter parameter.** Investigated Organization
+Service's actual controllers directly (not just the chart endpoint):
+- `DepartmentController`/`TeamController` are pure structure CRUD (name/code/parent/status) with
+  **no employee-membership list or count on either entity, anywhere**.
+- `GET /organization/chart` (`OrganizationChartService.buildChart`) confirmed to build its
+  response purely from `DepartmentRepository`/`TeamRepository` — department/team names and IDs
+  only, zero employee references, zero counts.
+- The thing every other report in this document calls "team scope" (`employee.read.team`,
+  `attendance.read.team`, etc.) is **a completely different concept from Organization's "Team"
+  entity** — it is resolved via `ReportingRelationController`'s `GET
+  /organization/reporting-relations/scope/{managerEmployeeRef}`, i.e. the manager-reporting
+  hierarchy, not org-chart team membership. The two happen to share the word "team" but share no
+  data model.
+- Employee Service's own `Employee`/`Employment` records carry no department or team reference
+  field at all (confirmed against both the full `EmployeeDtos.Response` and `Summary` shapes).
+
+**Net result: no existing API, in any combination, can answer "how many employees are in
+department X / team Y."** This is not a missing filter parameter to work around - it is a genuine
+absence of the underlying data relationship. Per this task's explicit instruction, no backend
+endpoint was added and no unsafe workaround (e.g., inferring membership from unrelated data) was
+built; department/team breakdown is simply **not implemented**, and is documented here as a real
+product gap: closing it would require either Employee Service recording a department/team
+reference per employee, or Organization Service recording per-team employee membership - a
+business/data-model decision for GDB, not a reporting-layer decision.
+
+**Also not implemented: employment-type breakdown.** `employmentType` exists only on the
+single-employee detail response (`GET /employees/{id}`'s `employment.employmentType`), never on
+the list/summary response. Computing a breakdown would require one detail call per employee -
+explicitly the "unsafe frontend workaround" this task's instructions forbid building, since cost
+scales with total headcount rather than a small fixed N. Not implemented; documented here instead.
+
+**Gap fixed — Reporting V1 authorization review, Part A
+(docs/REPORTING_AUTHORIZATION_REVIEW.md), implemented**: HR vs. Manager is now distinguished.
+`GET /employees`'s response carries a `page.scope` field (`"TEAM"`/`"ALL"`), taken directly from
+`EmployeeAccessGuard.ListScope.unrestricted()` - no new permission, no change to
+`EmployeeAccessGuard` itself. This page now requires `scope === "ALL"` before rendering, so a
+Manager's legitimate 200 (team-scoped) no longer satisfies this HR-only report. No content-based
+heuristic was used.
+
+**Critical, separate, pre-existing bug discovered while adding regression tests for the above —
+FIXED.** A real-database (Testcontainers) test of `GET /employees` with no `query` parameter -
+exactly how this page, Team Overview, and Leave Summary all call it - threw a Postgres
+`could not determine data type of parameter` 500 from
+`EmployeeRepository.searchAll`/`searchWithinScope`'s `(:query is null or lower(...) like ...)`
+JPQL pattern. Root cause: the standalone `:query is null` check gave Postgres's extended query
+protocol no type context for that parameter, and it was observed to resolve it as `bytea`,
+producing `function lower(bytea) does not exist` once that untyped value reached `concat()`/
+`lower()`. **Fix**: every occurrence of `:query` (and, defensively, `:status`) is now wrapped in
+`cast(:param as string)`, including the standalone `is null` check, so Postgres always has a
+single, consistent, correctly-typed parameter regardless of null-ness - no change to filtering
+semantics (no `query` still means no filtering) or to authorization. Confirmed fixed via real
+PostgreSQL/Testcontainers: `EmployeeIntegrationTest` now has dedicated coverage for `GET /employees`
+with no `query`, with a non-empty `query`, and for empty-string `query` being treated identically
+to no filter (9/9 passing). This report's, Team Overview's, and Leave Summary's employee-roster
+call pattern (`GET /employees` with no `query`) is now confirmed to execute without error.
 
 ### D2. Leave Balance & Utilization Summary (HR org-wide; Manager team-scoped) — MUST HAVE V1
 
@@ -279,15 +335,73 @@ without the optional department dimension.
   other half of Finance's "finance reporting" grant, and a direct reconciliation need once
   `expense.reimburse` has been exercised.
 - **Allowed roles**: Finance (`expense.read.all` already covers the data; report view reuses it).
-- **Data source**: Expense Service only — `GET /expenses/claims?status=&from=&to=&employeeId=`
-  (all scope).
-- **Filters**: status (`SUBMITTED`/`APPROVED`/`REIMBURSED`/`REJECTED`), date range, currency,
-  department (via a join against Employee/Organization for grouping only).
-- **Metrics**: total claimed, total approved, total reimbursed, count by status, per period/
-  currency.
+- **Data source**: Expense Service only — `GET /expenses/claims?from=&to=&size=200` (no
+  `employeeId`, no `status` filter — fetched once, unfiltered by status, so every metric below is
+  computed from one call).
+- **Filters implemented**: date range (`from`/`to`) only. **Currency and department/team were
+  dropped** — see the implementation note below.
+- **Metrics implemented**: claim count and rejected count (date-range, currency-agnostic); per
+  currency — submitted total+count, approved total+count, reimbursed total+count, rejected count.
+  Interpretation used (documented, not assumed silently): "total claimed"/"approved"/"reimbursed"
+  each map 1:1 onto claims **currently** in that exact status (`SUBMITTED`/`APPROVED`/`REIMBURSED`
+  respectively) within the selected date range — not a cross-status funnel/history calculation,
+  since a claim's past statuses aren't retained anywhere to compute one.
 - **API needed**: none — every claim already carries `total`/`currency`/`status`; this is pure
-  client-side (or one small server-side) aggregation of an already-complete list response.
-- **Frontend**: one new report page, Finance-only.
+  client-side aggregation of an already-complete list response.
+- **Frontend**: one new report page.
+
+**Implementation note (built)**: implemented at
+`frontend/employee-portal/app/expense-summary/page.tsx`, added to the "Work" nav group, no backend
+changes. No Employee Service call is made at all - D4's metrics are aggregate totals/counts, never
+per-employee, so there is no name to resolve (unlike D1/D2, which needed Employee Service for
+exactly that reason).
+
+**Department/team filtering dropped, same root cause as D1**: there is no employee-to-department/
+team linkage anywhere in this system (confirmed in D1's own note) - grouping expense claims by
+department would need the same nonexistent join. Not implemented; see D1 for the full finding.
+**Currency as a filter was also dropped** in favor of a per-currency breakdown table (same pattern
+D2 used for leave type) - showing every currency present at once is strictly more informative than
+forcing a single-currency filter, and avoids ever summing two different currencies together.
+
+**Gap fixed — Reporting V1 authorization review, Part A
+(docs/REPORTING_AUTHORIZATION_REVIEW.md), implemented**: `GET /expenses/claims`'s response now
+carries a `page.scope` field (`"SELF"`/`"TEAM"`/`"ALL"`), computed from the guard's own decision
+*before* the query runs (correct even on an empty result - the exact scenario that made the
+content-based heuristic considered and rejected below unsafe). Implementing this required a small,
+additive extension to `ExpenseAccessGuard.ListScope` itself: `unrestricted`/`allowedIds` alone
+could not distinguish self from team (both collapse to the same "restricted" shape), so a `Tier`
+enum was added, set from exactly the same three branches `resolveListScope` already had - no
+authorization *rule* changed, no permission added or removed. This page now requires
+`scope === "ALL"` before rendering, so neither a plain Employee/Team Lead's self-scoped 200 nor a
+Manager's team-scoped 200 satisfies this Finance-only report any longer.
+
+**Why a content-based heuristic was rejected instead** (kept for the record): "does the response
+contain more than one distinct `employeeRef`" would have incorrectly blocked a legitimate Finance
+user whenever the selected date range happened to contain claims from only one employee -
+including the ordinary, fully-legitimate empty-result case. The `page.scope` fix above avoids this
+entirely by reading the authorization decision itself, never the data.
+
+**Critical, separate, pre-existing bug discovered while adding regression tests for the above —
+FIXED.** A real-database (Testcontainers) test of `GET /expenses/claims` with `from`/`to` set and
+`status` omitted - exactly how this page calls it - threw a Postgres
+`could not determine data type of parameter` 500 from `ExpenseClaimRepository.searchAll`'s
+optional-filter JPQL. Root cause (two-stage): the same standalone `(:param is null or ...)` pattern
+caused the same type-inference failure as D1's `:query` bug; wrapping `:from`/`:to` in
+`cast(:param as date)` fixed `searchAll` directly but exposed a second, different failure
+(`cannot cast type bytea to date`) in `searchForEmployee`/`searchWithinScope` specifically -
+confirmed via Hibernate SQL/bind-parameter trace logging to be Hibernate falling back to binding
+the cast-wrapped null parameter as untyped `JAVA_OBJECT` whenever the same query also has an
+unrelated `employeeRef` equality/`IN` clause. **Fix**: replaced the standalone `is null` check
+entirely, for all three repository methods, with `coalesce(:param, <concrete sentinel>)` -
+`coalesce(:from, cast('0001-01-01' as date))`, `coalesce(:to, cast('9999-12-31' as date))`, and a
+self-referential `coalesce(:status, c.status)` for the enum filter - so every parameter occurrence
+is always paired with a concretely-typed value and Postgres never needs to resolve an unanchored
+type. No change to filtering semantics (absent `from`/`to`/`status` still means no filtering on
+that dimension) or to authorization. Confirmed fixed via real PostgreSQL/Testcontainers:
+`ExpenseIntegrationTest` now has dedicated coverage for `from`+`to` with no `status` (this report's
+exact pattern, including the empty-result case), no `from`/`to`, `status` alone, and all three
+together (16/16 passing). This report's own default call pattern is now confirmed to execute
+without error.
 
 ### D5. Team Overview (Manager) — MUST HAVE V1
 
@@ -379,10 +493,10 @@ question in #1 are genuine blockers worth resolving before writing code.
 
 | Item | Classification |
 |---|---|
-| D1 Workforce/Headcount Summary (HR) | **MUST HAVE V1** |
+| D1 Workforce/Headcount Summary (HR) | **MUST HAVE V1 — implemented** (total + status breakdown only; department/team/employment-type breakdown remain documented, unimplemented gaps; HR-vs-Manager authorization gap **fixed** by Reporting V1 authorization review Part A) |
 | D2 Leave Balance & Utilization Summary (HR/Manager) | **MUST HAVE V1 — implemented** |
 | D3 Payroll Cost Summary (Finance) | **MUST HAVE V1** — blocked on Section G items 1–2 |
-| D4 Expense Summary (Finance) | **MUST HAVE V1** |
+| D4 Expense Summary (Finance) | **MUST HAVE V1 — implemented** (date-range + per-currency/status totals; Finance-exclusive gating **fixed** by Reporting V1 authorization review Part A; a separate, unrelated pre-existing query bug remains - see D4) |
 | D5 Team Overview (Manager) | **MUST HAVE V1** |
 | Employee self-report | **NOT REQUIRED NOW** — duplicates existing `/me` endpoints + Dashboard |
 | Generic `ReportDefinition`/`ReportRun`/`Projection` engine | **NOT REQUIRED NOW** — no concrete report has ever justified it; would be over-build |
@@ -400,19 +514,34 @@ question in #1 are genuine blockers worth resolving before writing code.
    Summary, (3) Payroll Cost Summary, (4) Expense Summary, (5) Team Overview.
 2. **Exact roles allowed**: HR → #1, #2 (org-wide); Finance → #3, #4; Manager → #2 (team-scoped),
    #5. No report for Employee or generic "Admin" (neither is granted report access in RBAC.md).
-3. **Data sources required**: Employee Service + Organization Service (#1); Leave Service (#2);
-   Payroll Service (#3, needs one small same-service addition — run-level cost totals); Expense
-   Service (#4); Attendance + Leave + Expense + Employee Services (#5). No service outside this
-   list is needed.
-4. **Is a reporting service/database needed?** **No.** All five reports are served by composing
-   existing self/team/all-scoped APIs server-side in new frontend pages (the same pattern the
-   existing personal Dashboard already uses), plus one narrow addition to Payroll's own existing
-   response. No new service, no new database, no new event consumption.
-5. **Highest-priority implementation task**: ~~Team Overview (Manager)~~ and ~~Leave Balance &
-   Utilization Summary~~ — **both done** (see D5's and D2's "Implementation note"). **Next
-   recommended**: Workforce / Headcount Summary (D1) — the only remaining report with no Section G
-   business-decision blocker (D3 alone is blocked); it reuses the exact same `GET /employees`
-   authorization-anchor call D5/D2 already prove out, and is HR's turn after two Manager-facing
-   reports. Expect to need the client-side department/team grouping against `GET
-   /organization/chart` that D1's own correction note already flags, since `GET /employees` still
-   has no department/team filter.
+3. **Data sources required**: Employee Service only (#1 — Organization Service was dropped
+   entirely during implementation; see D1's note, there is no employee-to-department/team
+   linkage anywhere to join against); Leave Service (#2); Payroll Service (#3, needs one small
+   same-service addition — run-level cost totals); Expense Service only (#4 — no Employee Service
+   call either, since D4's metrics are aggregate, never per-employee); Attendance + Leave +
+   Expense + Employee Services (#5). No service outside this list is needed.
+4. **Is a reporting service/database needed?** **No.** All four implemented reports are served by
+   composing existing self/team/all-scoped APIs server-side in new frontend pages (the same
+   pattern the existing personal Dashboard already uses). D3 (not yet implemented) would need one
+   narrow addition to Payroll's own existing response. No new service, no new database, no new
+   event consumption, for any of the five.
+5. **Highest-priority implementation task**: ~~Team Overview (Manager)~~, ~~Leave Balance &
+   Utilization Summary~~, ~~Workforce / Headcount Summary~~, and ~~Expense Summary~~ — **all four
+   done** (see D5's, D2's, D1's, and D4's "Implementation note"). ~~Two authorization gaps~~ —
+   **both fixed** by Reporting V1 authorization review Part A
+   (docs/REPORTING_AUTHORIZATION_REVIEW.md): `GET /employees` and `GET /expenses/claims` now carry
+   a `page.scope` field taken directly from each service's own access-guard decision, and D1/D4
+   fail closed on anything other than `scope === "ALL"`. ~~A real-database test exposed a
+   pre-existing, unrelated Postgres parameter-type-inference bug in `EmployeeRepository`'s and
+   `ExpenseClaimRepository`'s optional list-filter JPQL, which already affected D1, D2, D4, and
+   D5's actual call patterns~~ — **FIXED** (separate follow-up task; see D1's and D4's notes above
+   for the exact root causes and fixes). `EmployeeRepository` now casts every `:query`/`:status`
+   occurrence, including the standalone `is null` check, to a concrete type; `ExpenseClaimRepository`
+   now uses `coalesce(:param, <sentinel>)` instead of a standalone `is null` check for `:from`/
+   `:to`/`:status`. Both confirmed against real PostgreSQL/Testcontainers (Employee: 9/9, Expense:
+   16/16 passing), with dedicated regression coverage for each of D1/D2/D4/D5's exact call
+   patterns. No authorization, business behavior, or RBAC changed. **Next recommended**: resolve
+   Section G's two open items (`report.*` permission naming; whether GDB wants Payroll to expose an
+   aggregate cost figure at all) to unblock Payroll Cost Summary (D3), the only unimplemented
+   report; Part B (dedicated `report.workforce.read`/`report.expense.read` permissions) remains
+   optional hardening, not required.

@@ -251,23 +251,97 @@ class ExpenseIntegrationTest {
         createClaim(employeeA, "Travel", "10.00");
         createClaim(employeeB, "Travel", "20.00");
 
+        // Reporting V1 authorization review, Part A (docs/REPORTING_AUTHORIZATION_REVIEW.md):
+        // each tier's real, legitimate 200 response must carry the matching page.scope - this is
+        // the exact contract the Expense Summary report's authorization gate depends on, proving
+        // a self-only (or team-only) caller's response is never tagged "ALL".
         when(employeeClient.resolveSelfEmployeeRef()).thenReturn(Optional.of(employeeA));
         mockMvc.perform(get("/api/v1/expenses/claims")
                         .with(jwt().authorities(new SimpleGrantedAuthority("expense.read.self"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[*].employeeRef", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(employeeA.toString()))));
+                .andExpect(jsonPath("$.items[*].employeeRef", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(employeeA.toString()))))
+                .andExpect(jsonPath("$.page.scope").value("SELF"));
 
         when(employeeClient.resolveSelfEmployeeRef()).thenReturn(Optional.of(manager));
         when(organizationClient.resolveTeamScope(manager)).thenReturn(Set.of(employeeB));
         mockMvc.perform(get("/api/v1/expenses/claims")
                         .with(jwt().authorities(new SimpleGrantedAuthority("expense.read.team"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[*].employeeRef", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(employeeB.toString()))));
+                .andExpect(jsonPath("$.items[*].employeeRef", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(employeeB.toString()))))
+                .andExpect(jsonPath("$.page.scope").value("TEAM"));
 
         mockMvc.perform(get("/api/v1/expenses/claims")
                         .with(jwt().authorities(new SimpleGrantedAuthority("expense.read.all"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", org.hamcrest.Matchers.not(org.hamcrest.Matchers.empty())));
+                .andExpect(jsonPath("$.items", org.hamcrest.Matchers.not(org.hamcrest.Matchers.empty())))
+                .andExpect(jsonPath("$.page.scope").value("ALL"));
+    }
+
+    /**
+     * Confirmed PostgreSQL parameter-typing defect fix (docs/REPORTING_AUTHORIZATION_REVIEW.md
+     * Part A verification): {@code ExpenseClaimRepository.searchAll}'s {@code :from}/{@code :to}
+     * parameters, each referenced in a standalone {@code is null} check with no other type
+     * context, left Postgres's extended query protocol unable to determine either parameter's
+     * type, producing "could not determine data type of parameter" for Expense Summary's own
+     * call pattern (date range set, {@code status} omitted) - confirmed independent of whether
+     * {@code status} was also set. Fixed by casting every occurrence of {@code :from}/{@code :to}
+     * to an explicit date type. These tests reproduce the exact previously-crashing call pattern
+     * and the surrounding ones the fix must not regress, including the empty-result case a
+     * content-based heuristic could never have covered safely (see the doc's rejection of that
+     * approach).
+     */
+    @Test
+    void listingWorksWithFromAndToAndNoStatus() throws Exception {
+        UUID employeeA = UUID.randomUUID();
+        createClaim(employeeA, "Travel", "10.00");
+        String today = java.time.LocalDate.now().toString();
+
+        // This is Expense Summary's exact default call pattern - from/to set, status omitted -
+        // which reproduced the confirmed defect directly before the fix.
+        mockMvc.perform(get("/api/v1/expenses/claims?from=2000-01-01&to=" + today)
+                        .with(jwt().authorities(new SimpleGrantedAuthority("expense.read.all"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.scope").value("ALL"));
+    }
+
+    @Test
+    void listingWorksWithFromAndToAndNoStatusWhenNoClaimsMatch() throws Exception {
+        mockMvc.perform(get("/api/v1/expenses/claims?from=1900-01-01&to=1900-01-02")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("expense.read.all"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.page.scope").value("ALL"));
+    }
+
+    @Test
+    void listingWorksWithoutFromOrTo() throws Exception {
+        UUID employeeA = UUID.randomUUID();
+        createClaim(employeeA, "Travel", "10.00");
+
+        mockMvc.perform(get("/api/v1/expenses/claims")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("expense.read.all"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.scope").value("ALL"));
+    }
+
+    @Test
+    void listingWorksWithStatusAndNoFromOrTo() throws Exception {
+        UUID employeeA = UUID.randomUUID();
+        createClaim(employeeA, "Travel", "10.00");
+
+        mockMvc.perform(get("/api/v1/expenses/claims?status=DRAFT")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("expense.read.all"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.scope").value("ALL"));
+    }
+
+    @Test
+    void listingWorksWithStatusAndFromAndToAllSetTogether() throws Exception {
+        String today = java.time.LocalDate.now().toString();
+        mockMvc.perform(get("/api/v1/expenses/claims?status=DRAFT&from=2000-01-01&to=" + today)
+                        .with(jwt().authorities(new SimpleGrantedAuthority("expense.read.all"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.scope").value("ALL"));
     }
 
     @Test

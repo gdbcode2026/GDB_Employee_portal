@@ -54,11 +54,11 @@ public class ExpenseAccessGuard {
             if (self.isEmpty()) {
                 return ListScope.denied();
             }
-            return ListScope.restrictedTo(organizationClient.resolveTeamScope(self.get()));
+            return ListScope.restrictedToTeam(organizationClient.resolveTeamScope(self.get()));
         }
         if (hasAuthority(authentication, "expense.read.self")) {
             Optional<UUID> self = resolveSelf(authentication);
-            return self.map(id -> ListScope.restrictedTo(Set.of(id))).orElseGet(ListScope::denied);
+            return self.map(id -> ListScope.restrictedToSelf(Set.of(id))).orElseGet(ListScope::denied);
         }
         return ListScope.denied();
     }
@@ -67,9 +67,19 @@ public class ExpenseAccessGuard {
         return authentication.getAuthorities().stream().anyMatch(granted -> granted.getAuthority().equals(authority));
     }
 
-    public record ListScope(boolean allowed, boolean unrestricted, Set<UUID> allowedIds) {
-        public static ListScope all() { return new ListScope(true, true, Set.of()); }
-        public static ListScope restrictedTo(Set<UUID> ids) { return new ListScope(true, false, ids); }
-        public static ListScope denied() { return new ListScope(false, false, Set.of()); }
+    /**
+     * {@code tier} records exactly which branch above produced this scope - SELF/TEAM/ALL/{@code
+     * null} for denied - purely as a descriptive tag for Reporting V1 authorization review Part A
+     * (docs/REPORTING_AUTHORIZATION_REVIEW.md): it does not change what {@code unrestricted}/
+     * {@code allowedIds} compute, only adds a way to report which of the three tiers (previously
+     * indistinguishable once collapsed into "restricted") actually authorized this request.
+     */
+    public record ListScope(boolean allowed, boolean unrestricted, Set<UUID> allowedIds, Tier tier) {
+        public static ListScope all() { return new ListScope(true, true, Set.of(), Tier.ALL); }
+        public static ListScope restrictedToTeam(Set<UUID> ids) { return new ListScope(true, false, ids, Tier.TEAM); }
+        public static ListScope restrictedToSelf(Set<UUID> ids) { return new ListScope(true, false, ids, Tier.SELF); }
+        public static ListScope denied() { return new ListScope(false, false, Set.of(), null); }
+
+        public enum Tier { SELF, TEAM, ALL }
     }
 }

@@ -98,7 +98,18 @@ public class ExpenseClaimService {
             var effectiveIds = employeeId != null ? List.of(employeeId) : List.copyOf(scope.allowedIds());
             page = claimRepository.searchWithinScope(effectiveIds, status, from, to, pageable);
         }
-        return PageResponse.of(page.map(this::toResponse));
+        // Reporting V1 authorization review, Part A (docs/REPORTING_AUTHORIZATION_REVIEW.md):
+        // taken directly from the guard's own tier decision, never from the query result above.
+        PageResponse.ResponseScope responseScope = toResponseScope(scope.tier());
+        return PageResponse.of(page.map(this::toResponse), responseScope);
+    }
+
+    private PageResponse.ResponseScope toResponseScope(ExpenseAccessGuard.ListScope.Tier tier) {
+        return switch (tier) {
+            case SELF -> PageResponse.ResponseScope.SELF;
+            case TEAM -> PageResponse.ResponseScope.TEAM;
+            case ALL -> PageResponse.ResponseScope.ALL;
+        };
     }
 
     @Transactional

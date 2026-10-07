@@ -118,7 +118,8 @@ class EmployeeControllerTest {
 
     @Test
     void listAllowsTeamReadAuthority() throws Exception {
-        when(service.list(any(), any(), any(), any())).thenReturn(new PageResponse<>(List.of(), new PageResponse.PageMeta(0, 20, 0)));
+        when(service.list(any(), any(), any(), any())).thenReturn(new PageResponse<>(List.of(),
+                new PageResponse.PageMeta(0, 20, 0, PageResponse.ResponseScope.TEAM)));
 
         mockMvc.perform(get("/api/v1/employees")
                         .with(jwt().authorities(new SimpleGrantedAuthority("employee.read.team"))))

@@ -166,6 +166,22 @@ class EmployeeServiceTest {
                 .isInstanceOf(AccessDeniedException.class);
     }
 
+    /**
+     * Reporting V1 authorization review, Part A (docs/REPORTING_AUTHORIZATION_REVIEW.md): the
+     * list endpoint's own guard has no self branch - a caller holding only {@code
+     * employee.read.self} is denied outright, never granted a SELF-scoped response. This is the
+     * same {@code denied()} path as any other unauthorized caller; documented as its own test so
+     * the "SELF scope is never reachable here" property is explicit and would fail loudly if that
+     * ever changed.
+     */
+    @Test
+    void listDeniesAccessForASelfOnlyCallerRatherThanGrantingASelfScopedResponse() {
+        when(accessGuard.resolveListScope(authentication)).thenReturn(EmployeeAccessGuard.ListScope.denied());
+
+        assertThatThrownBy(() -> service().list(authentication, null, null, org.springframework.data.domain.Pageable.unpaged()))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
     @Test
     void listReturnsEmptyPageWithoutQueryingRepositoryWhenTeamScopeIsEmpty() {
         when(accessGuard.resolveListScope(authentication)).thenReturn(EmployeeAccessGuard.ListScope.restrictedTo(java.util.Set.of()));
@@ -173,8 +189,52 @@ class EmployeeServiceTest {
         var page = service().list(authentication, null, null, org.springframework.data.domain.PageRequest.of(0, 20));
 
         assertThat(page.items()).isEmpty();
+        // Reporting V1 authorization review, Part A: scope is taken from the guard's own
+        // decision (restricted/TEAM), not inferred from the empty result.
+        assertThat(page.page().scope()).isEqualTo(com.growdigitalbridge.employee.api.dto.PageResponse.ResponseScope.TEAM);
         verify(employeeRepository, never()).searchWithinScope(any(), any(), any(), any());
         verify(employeeRepository, never()).searchAll(any(), any(), any());
+    }
+
+    @Test
+    void listReportsTeamScopeWhenCallerIsRestrictedToATeam() {
+        UUID teamMember = UUID.randomUUID();
+        when(accessGuard.resolveListScope(authentication))
+                .thenReturn(EmployeeAccessGuard.ListScope.restrictedTo(java.util.Set.of(teamMember)));
+        when(employeeRepository.searchWithinScope(any(), any(), any(), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        var page = service().list(authentication, null, null, org.springframework.data.domain.PageRequest.of(0, 20));
+
+        assertThat(page.page().scope()).isEqualTo(com.growdigitalbridge.employee.api.dto.PageResponse.ResponseScope.TEAM);
+        verify(employeeRepository, never()).searchAll(any(), any(), any());
+    }
+
+    @Test
+    void listReportsAllScopeWhenCallerIsUnrestricted() {
+        when(accessGuard.resolveListScope(authentication)).thenReturn(EmployeeAccessGuard.ListScope.all());
+        when(employeeRepository.searchAll(any(), any(), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        var page = service().list(authentication, null, null, org.springframework.data.domain.PageRequest.of(0, 20));
+
+        assertThat(page.page().scope()).isEqualTo(com.growdigitalbridge.employee.api.dto.PageResponse.ResponseScope.ALL);
+        verify(employeeRepository, never()).searchWithinScope(any(), any(), any(), any());
+    }
+
+    @Test
+    void listReportsAllScopeEvenWhenTheResultIsEmpty() {
+        when(accessGuard.resolveListScope(authentication)).thenReturn(EmployeeAccessGuard.ListScope.all());
+        when(employeeRepository.searchAll(any(), any(), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        var page = service().list(authentication, null, null, org.springframework.data.domain.PageRequest.of(0, 20));
+
+        assertThat(page.items()).isEmpty();
+        // Reporting V1 authorization review, Part A: scope must reflect the ALL authorization
+        // decision regardless of how many (zero, here) employees matched - never collapse an
+        // empty ALL-scoped result into something indistinguishable from a denied/empty TEAM one.
+        assertThat(page.page().scope()).isEqualTo(com.growdigitalbridge.employee.api.dto.PageResponse.ResponseScope.ALL);
     }
 
     @Test

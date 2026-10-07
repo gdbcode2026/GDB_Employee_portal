@@ -69,13 +69,20 @@ public class EmployeeService {
         if (!scope.allowed()) {
             throw new AccessDeniedException("Listing employees requires team or all read scope.");
         }
+        // Reporting V1 authorization review, Part A (docs/REPORTING_AUTHORIZATION_REVIEW.md):
+        // this endpoint's own guard never grants a self-only scope (resolveListScope denies
+        // outright unless team or all), so only TEAM/ALL are ever reachable here - computed from
+        // the guard's decision itself, never from the query result.
+        PageResponse.ResponseScope responseScope = scope.unrestricted()
+                ? PageResponse.ResponseScope.ALL
+                : PageResponse.ResponseScope.TEAM;
         if (!scope.unrestricted() && scope.allowedIds().isEmpty()) {
-            return PageResponse.empty(pageable.getPageNumber(), pageable.getPageSize());
+            return PageResponse.empty(pageable.getPageNumber(), pageable.getPageSize(), responseScope);
         }
         Page<Employee> page = scope.unrestricted()
                 ? employeeRepository.searchAll(status, query, pageable)
                 : employeeRepository.searchWithinScope(scope.allowedIds(), status, query, pageable);
-        return PageResponse.of(page.map(this::toSummary));
+        return PageResponse.of(page.map(this::toSummary), responseScope);
     }
 
     @Transactional

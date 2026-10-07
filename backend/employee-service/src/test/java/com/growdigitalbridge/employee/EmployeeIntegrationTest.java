@@ -129,6 +129,105 @@ class EmployeeIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    /**
+     * Reporting V1 authorization review, Part A (docs/REPORTING_AUTHORIZATION_REVIEW.md): proves
+     * the exact contract the Workforce Summary report's authorization gate depends on - a
+     * Manager's real, legitimate `employee.read.team` request must come back tagged "TEAM", never
+     * "ALL", so the frontend's `scope === "ALL"` check correctly refuses to treat it as the
+     * HR-only, organization-wide report. Exercised through the real security filter chain and a
+     * real database, not a mock of the guard itself.
+     *
+     * <p>Also the exact call pattern (no {@code query} parameter) Workforce Summary, Team
+     * Overview, and Leave Summary's employee-roster call all use - the confirmed PostgreSQL
+     * parameter-typing defect in {@code EmployeeRepository.searchWithinScope} (see the
+     * "PostgreSQL parameter-typing fix" verification tests below) made this throw a 500 before
+     * the fix; no workaround/query parameter is used here any more.
+     */
+    @Test
+    void listResponseTagsTeamScopeAsTeamNeverAll() throws Exception {
+        EmployeeDtos.Response manager = createEmployee("EMP-400", "Manager", "manager-subject-400");
+        EmployeeDtos.Response report = createEmployee("EMP-401", "Report", null);
+        when(organizationClient.resolveTeamScope(manager.id())).thenReturn(Set.of(report.id()));
+
+        mockMvc.perform(get("/api/v1/employees")
+                        .with(jwt().jwt(jwt -> jwt.subject("manager-subject-400")).authorities(new SimpleGrantedAuthority("employee.read.team"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.scope").value("TEAM"));
+    }
+
+    /**
+     * Same contract, the HR/unrestricted side: a true `employee.read.all` caller must get "ALL".
+     * Also Workforce Summary's own exact call pattern (`GET /employees` with no {@code query}) -
+     * see the class-level note above and the dedicated PostgreSQL-defect tests below.
+     */
+    @Test
+    void listResponseTagsUnrestrictedScopeAsAll() throws Exception {
+        mockMvc.perform(get("/api/v1/employees")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("employee.read.all"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.scope").value("ALL"));
+    }
+
+    /**
+     * Confirmed PostgreSQL parameter-typing defect fix (docs/REPORTING_AUTHORIZATION_REVIEW.md
+     * Part A verification): {@code EmployeeRepository.searchAll}/{@code searchWithinScope}'s
+     * {@code :query} parameter, referenced in a standalone {@code is null} check with no other
+     * type context, was resolved by Postgres's extended query protocol as {@code bytea},
+     * producing "function lower(bytea) does not exist" for any real caller omitting {@code
+     * query} - i.e. every existing caller, including every Reporting V1 page. Fixed by casting
+     * every occurrence of {@code :query} to an explicit type. These tests reproduce the exact
+     * previously-crashing call patterns and the surrounding ones the fix must not regress.
+     */
+    @Test
+    void listWorksWithoutAQueryParameterUnderAllScope() throws Exception {
+        createEmployee("EMP-500", "NoQueryAll", null);
+
+        mockMvc.perform(get("/api/v1/employees")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("employee.read.all"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.scope").value("ALL"));
+    }
+
+    @Test
+    void listWorksWithoutAQueryParameterUnderTeamScope() throws Exception {
+        EmployeeDtos.Response manager = createEmployee("EMP-501", "Manager501", "manager-subject-501");
+        EmployeeDtos.Response report = createEmployee("EMP-502", "Report502", null);
+        when(organizationClient.resolveTeamScope(manager.id())).thenReturn(Set.of(report.id()));
+
+        mockMvc.perform(get("/api/v1/employees")
+                        .with(jwt().jwt(jwt -> jwt.subject("manager-subject-501")).authorities(new SimpleGrantedAuthority("employee.read.team"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.scope").value("TEAM"))
+                .andExpect(jsonPath("$.items[*].employeeNumber", org.hamcrest.Matchers.hasItem("EMP-502")));
+    }
+
+    @Test
+    void listWorksWithANonEmptyQueryParameterAndFiltersByIt() throws Exception {
+        createEmployee("EMP-503", "Zedekiah", null);
+        createEmployee("EMP-504", "Winslow", null);
+
+        mockMvc.perform(get("/api/v1/employees?query=Zedekiah")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("employee.read.all"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].firstName", org.hamcrest.Matchers.contains("Zedekiah")));
+    }
+
+    /** An explicitly-empty (not omitted) `query` must behave exactly like "no filter at all". */
+    @Test
+    void listTreatsAnEmptyQueryParameterTheSameAsNoFilter() throws Exception {
+        createEmployee("EMP-505", "EmptyQueryCheck", null);
+
+        MvcResult withoutQuery = mockMvc.perform(get("/api/v1/employees")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("employee.read.all"))))
+                .andExpect(status().isOk()).andReturn();
+        MvcResult withEmptyQuery = mockMvc.perform(get("/api/v1/employees?query=")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("employee.read.all"))))
+                .andExpect(status().isOk()).andReturn();
+
+        org.assertj.core.api.Assertions.assertThat(withEmptyQuery.getResponse().getContentAsString())
+                .isEqualTo(withoutQuery.getResponse().getContentAsString());
+    }
+
     private EmployeeDtos.Response createEmployee(String employeeNumber, String firstName, String identitySubject) throws Exception {
         var request = new EmployeeDtos.CreateRequest(employeeNumber, firstName, "Test", employeeNumber.toLowerCase() + "@example.com",
                 null, identitySubject, new EmployeeDtos.EmploymentDetails("Engineer", EmploymentType.FULL_TIME, LocalDate.now()), null);
