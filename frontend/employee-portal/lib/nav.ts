@@ -16,6 +16,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Overview",
     items: [
       { href: "/", label: "Dashboard", icon: "dashboard" },
+      { href: "/team-overview", label: "Team Overview", icon: "organization" },
       { href: "/profile", label: "My Profile", icon: "profile" },
       { href: "/directory", label: "Directory", icon: "directory" },
       { href: "/organization", label: "Organization", icon: "organization" },
@@ -26,6 +27,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/attendance", label: "Attendance", icon: "attendance" },
       { href: "/leave", label: "Leave", icon: "leave" },
+      { href: "/leave-summary", label: "Leave Summary", icon: "leave" },
       { href: "/payroll", label: "Payroll", icon: "payroll" },
       { href: "/expenses", label: "Expenses", icon: "expenses" },
       { href: "/projects", label: "Projects & Tasks", icon: "projects" },
