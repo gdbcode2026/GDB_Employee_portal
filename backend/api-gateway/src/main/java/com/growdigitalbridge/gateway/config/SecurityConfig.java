@@ -27,8 +27,16 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 class SecurityConfig {
     @Bean SecurityWebFilterChain security(ServerHttpSecurity http, ObjectProvider<ReactiveJwtDecoder> decoder) {
         decoder.ifAvailable(value -> http.oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtDecoder(value).jwtAuthenticationConverter(new ReactiveJwtAuthenticationConverterAdapter(authenticationConverter())))));
+        // Gateway authenticates only (valid JWT -> issuer/audience/signature checked); it is
+        // deliberately NOT the authorization layer. `anyExchange().authenticated()` lets any
+        // request bearing a valid JWT proceed to routing - each domain service independently
+        // makes its own permission decision from the same token (docs/DECISIONS.md "defense in
+        // depth": "the gateway validates tokens, while each service makes its own authorization
+        // decision"). The previous `.anyExchange().denyAll()` denied every proxied route
+        // unconditionally, even for a fully valid, correctly-signed token - a wiring defect, not
+        // an intended "gateway has no routes configured yet" state.
         return http.csrf(ServerHttpSecurity.CsrfSpec::disable)
-                .authorizeExchange(exchanges -> exchanges.pathMatchers("/actuator/health/**", "/actuator/info").permitAll().anyExchange().denyAll())
+                .authorizeExchange(exchanges -> exchanges.pathMatchers("/actuator/health/**", "/actuator/info").permitAll().anyExchange().authenticated())
                 .build();
     }
 
