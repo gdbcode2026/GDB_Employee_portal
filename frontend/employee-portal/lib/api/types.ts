@@ -357,6 +357,54 @@ export interface PayslipDetail {
   generatedAt: string;
 }
 
+// Mirrors backend/payroll-service PayrollCostSummaryDtos.Response field for field (Reporting V1
+// D3). One row per payroll run - REGULAR and ADJUSTMENT runs are never merged/netted, so a period
+// with a correction can appear as two rows. No employee-level field exists here; every money
+// field is a run-level sum, never a per-employee value. There is deliberately no combined
+// "total payroll cost" field - no formula for it is documented anywhere in this codebase.
+export type PayrollRunType = "REGULAR" | "ADJUSTMENT";
+export type PayrollRunStatus =
+  | "DRAFT"
+  | "PROCESSING"
+  | "CALCULATED"
+  | "CALCULATION_FAILED"
+  | "PENDING_APPROVAL"
+  | "APPROVED"
+  | "FINALIZED"
+  | "REJECTED"
+  | "CANCELLED";
+
+// Mirrors backend/payroll-service PayrollPeriodDtos.Response field for field.
+export type PayrollPeriodStatus = "OPEN" | "CLOSED";
+
+export interface PayrollPeriod {
+  id: string;
+  year: number;
+  month: number;
+  startDate: string;
+  endDate: string;
+  cutOffDate: string | null;
+  status: PayrollPeriodStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PayrollRunCostSummary {
+  runId: string;
+  periodId: string;
+  periodYear: number;
+  periodMonth: number;
+  runType: PayrollRunType;
+  correctsRunId: string | null;
+  status: PayrollRunStatus;
+  employeeCount: number;
+  totalGrossPay: number;
+  totalDeductions: number;
+  totalEmployerContributions: number;
+  totalNetPay: number;
+  finalizedAt: string | null;
+}
+
 export interface PayslipDownloadResponse {
   payslipId: string;
   documentId: string;

@@ -1,7 +1,9 @@
 package com.growdigitalbridge.payroll.api;
 
 import com.growdigitalbridge.payroll.api.dto.PageResponse;
+import com.growdigitalbridge.payroll.api.dto.PayrollCostSummaryDtos;
 import com.growdigitalbridge.payroll.api.dto.PayrollRunDtos;
+import com.growdigitalbridge.payroll.domain.PayrollRunStatus;
 import com.growdigitalbridge.payroll.security.CurrentActor;
 import com.growdigitalbridge.payroll.security.CurrentCorrelation;
 import com.growdigitalbridge.payroll.service.PayrollRunService;
@@ -32,6 +34,22 @@ class PayrollRunController {
                                                 @RequestParam(defaultValue = "20") int size,
                                                 @RequestParam(required = false) String sort) {
         return service.list(PagingSupport.of(page, size, sort, "createdAt"));
+    }
+
+    /**
+     * Reporting V1 D3 (Payroll Cost Summary). A literal path segment, resolved by Spring MVC ahead
+     * of the {@code /{id}} variable mapping below (same convention as {@code /employees/me}
+     * elsewhere in this codebase) - "cost-summary" is never parsed as a run UUID. Matches the
+     * existing {@code GET /api/v1/payroll/runs/*} security matcher (payroll.read.all) unchanged -
+     * no SecurityConfig change was needed for this endpoint.
+     */
+    @GetMapping("/cost-summary")
+    PageResponse<PayrollCostSummaryDtos.Response> costSummary(@RequestParam(required = false) UUID periodId,
+                                                                @RequestParam(required = false) PayrollRunStatus status,
+                                                                @RequestParam(defaultValue = "0") int page,
+                                                                @RequestParam(defaultValue = "20") int size,
+                                                                @RequestParam(required = false) String sort) {
+        return service.costSummary(periodId, status, PagingSupport.of(page, size, sort, "createdAt"));
     }
 
     @PostMapping

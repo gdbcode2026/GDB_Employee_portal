@@ -1,5 +1,6 @@
 package com.growdigitalbridge.payroll.service;
 
+import com.growdigitalbridge.payroll.api.dto.PayrollCostSummaryDtos;
 import com.growdigitalbridge.payroll.api.dto.PayrollRunDtos;
 import com.growdigitalbridge.payroll.calculation.CalculationResult;
 import com.growdigitalbridge.payroll.calculation.PayrollCalculationEngine;
@@ -18,6 +19,8 @@ import com.growdigitalbridge.payroll.service.exception.ConflictException;
 import com.growdigitalbridge.payroll.service.exception.InvalidLifecycleTransitionException;
 import com.growdigitalbridge.payroll.service.exception.InvalidRequestException;
 import com.growdigitalbridge.payroll.service.exception.ResourceNotFoundException;
+import jakarta.persistence.Tuple;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Map;
@@ -164,6 +167,25 @@ public class PayrollRunService {
     }
 
     /**
+     * Reporting V1 D3 (Payroll Cost Summary). {@code status} defaults to {@code FINALIZED} when
+     * omitted - the documented default (docs/REPORTING_V1_REQUIREMENTS.md Section D3), since only
+     * finalized runs represent real paid amounts. {@code periodId} is an optional exact filter.
+     * Branching here (rather than a single JPQL query with a standalone {@code is null} check) is
+     * deliberate - see {@link PayrollRunRepository}'s Javadoc for why. Each run - REGULAR or
+     * ADJUSTMENT - is returned as its own row; this method never sums or nets across runs (GDB
+     * decision, D3 Phase 1 review).
+     */
+    @Transactional(readOnly = true)
+    public com.growdigitalbridge.payroll.api.dto.PageResponse<PayrollCostSummaryDtos.Response> costSummary(
+            UUID periodId, PayrollRunStatus status, Pageable pageable) {
+        PayrollRunStatus effectiveStatus = status != null ? status : PayrollRunStatus.FINALIZED;
+        Page<PayrollRun> page = periodId != null
+                ? repository.findByPeriodIdAndStatus(periodId, effectiveStatus, pageable)
+                : repository.findByStatus(effectiveStatus, pageable);
+        return com.growdigitalbridge.payroll.api.dto.PageResponse.of(page.map(this::toCostSummaryResponse));
+    }
+
+    /**
      * Orchestrates DRAFT/REJECTED/CALCULATION_FAILED -&gt; PROCESSING -&gt; CALCULATED, or -&gt;
      * CALCULATION_FAILED on error. See the class Javadoc for why this method itself is not
      * {@code @Transactional}.
@@ -287,5 +309,16 @@ public class PayrollRunService {
                 run.getStatus(), run.getEmployeeSnapshot().size(), (int) lineCount, (int) exceptionCount,
                 run.getInitiatedBy(), run.getApprovedBy(), run.getApprovedAt(), run.getFinalizedAt(),
                 run.getCreatedAt(), run.getUpdatedAt());
+    }
+
+    private PayrollCostSummaryDtos.Response toCostSummaryResponse(PayrollRun run) {
+        PayrollPeriod period = periodRepository.findById(run.getPeriodId())
+                .orElseThrow(() -> new ResourceNotFoundException("Payroll period " + run.getPeriodId() + " was not found."));
+        Tuple totals = lineRepository.sumTotalsByRunId(run.getId());
+        return new PayrollCostSummaryDtos.Response(run.getId(), run.getPeriodId(), period.getYear(), period.getMonth(),
+                run.getRunType(), run.getCorrectsRunId(), run.getStatus(), run.getEmployeeSnapshot().size(),
+                totals.get("grossPay", BigDecimal.class), totals.get("totalDeductions", BigDecimal.class),
+                totals.get("totalEmployerContributions", BigDecimal.class), totals.get("netPay", BigDecimal.class),
+                run.getFinalizedAt());
     }
 }

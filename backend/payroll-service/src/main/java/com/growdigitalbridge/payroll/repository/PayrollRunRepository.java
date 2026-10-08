@@ -7,9 +7,23 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PayrollRunRepository extends JpaRepository<PayrollRun, UUID> {
+
+    /**
+     * Reporting V1 D3 (Payroll Cost Summary) filters. Two separate derived-query methods, branched
+     * on by the service layer depending on whether {@code periodId} was supplied, rather than one
+     * JPQL query with a standalone {@code (:periodId is null or ...)} check - the exact pattern
+     * that caused the PostgreSQL parameter-type-inference defect fixed in Employee/Expense
+     * (docs/REPORTING_AUTHORIZATION_REVIEW.md). Neither method here ever binds a nullable
+     * parameter, so that defect class cannot occur.
+     */
+    Page<PayrollRun> findByStatus(PayrollRunStatus status, Pageable pageable);
+
+    Page<PayrollRun> findByPeriodIdAndStatus(UUID periodId, PayrollRunStatus status, Pageable pageable);
 
     /**
      * Section T's idempotency key: {@code (period_id, run_type, corrects_run_id)}. Passing

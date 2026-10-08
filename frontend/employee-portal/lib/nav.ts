@@ -30,6 +30,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/leave", label: "Leave", icon: "leave" },
       { href: "/leave-summary", label: "Leave Summary", icon: "leave" },
       { href: "/payroll", label: "Payroll", icon: "payroll" },
+      { href: "/payroll-summary", label: "Payroll Cost Summary", icon: "payroll" },
       { href: "/expenses", label: "Expenses", icon: "expenses" },
       { href: "/expense-summary", label: "Expense Summary", icon: "expenses" },
       { href: "/projects", label: "Projects & Tasks", icon: "projects" },

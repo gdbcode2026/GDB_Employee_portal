@@ -305,29 +305,61 @@ leave type only (org-wide for HR, team-scoped for Manager, per the access guard)
 what the "aggregate used-days per ... leave type for a selected period" metric asks for, just
 without the optional department dimension.
 
-### D3. Payroll Cost Summary (Finance) — MUST HAVE V1, blocked on one small Payroll addition
+### D3. Payroll Cost Summary (Finance) — MUST HAVE V1, implemented
 
 - **Purpose**: total payroll cost (gross pay, deductions, employer contributions, net pay) per
-  processed payroll run/period — the single most essential Finance reporting need in any payroll
-  system, and the direct referent of RBAC's "...plus finance reporting" grant.
-- **Allowed roles**: Finance only (reuses `payroll.read.all` plus whatever permission Section G's
-  "finance reporting" question resolves to).
-- **Data source**: Payroll Service.
-- **Filters**: payroll period/year, run status (`FINALIZED` runs only is the obvious default,
-  since only those represent real paid amounts).
-- **Metrics**: total gross pay, total deductions, total employer contributions, total net pay,
-  employee count, exception count — per run/period.
-- **API needed**: **yes, a small one** — today `PayrollRunDtos.Response` has `employeeCount`/
-  `lineCount`/`exceptionCount` but no money total, and there is no `GET
-  /payroll/runs/{id}/lines` endpoint to sum client-side. The minimal fix is adding
-  `totalGrossPay`/`totalDeductions`/`totalEmployerContributions`/`totalNetPay` to the existing
-  run response (computed from `PayrollRunLine` rows Payroll already owns) — a same-service,
-  same-endpoint addition, not a new reporting service and not a new permission.
-- **Frontend**: one new report page, Finance-only, reading the enriched run list/detail response.
-- **Open question this review does not resolve**: Payroll's existing posture everywhere else in
-  this codebase is unusually strict ("sensitive isolation," "no self-service path," every
-  sensitive read audited). Exposing even an aggregate cost total is a policy choice GDB should
-  confirm explicitly, not something this review assumes — see Section G.
+  processed payroll run — the single most essential Finance reporting need in any payroll system,
+  and the direct referent of RBAC's "...plus finance reporting" grant.
+- **Endpoint**: `GET /api/v1/payroll/runs/cost-summary?periodId=&status=&page=&size=&sort=` — a
+  dedicated reporting endpoint, deliberately not a reuse of `GET /payroll/runs`'s response
+  contract (that contract is unchanged by this work). Matches the existing `GET
+  /api/v1/payroll/runs/*` security matcher as a literal path segment (resolved by Spring MVC ahead
+  of the `/{id}` variable route, same convention as `/employees/me`) — **no `SecurityConfig`
+  change was needed**.
+- **Authorization**: `payroll.read.all` only — the existing, already-exclusive flat permission
+  (no self/team tier exists for payroll runs at all). No new permission was introduced; Section
+  G's "finance reporting" naming question is resolved for D3 specifically by reusing
+  `payroll.read.all` directly. An Employee, Manager, or Admin token holds none of it and is
+  denied with 403 server-side — confirmed by real-PostgreSQL integration tests, not by a frontend
+  check.
+- **Filters implemented**: `periodId` (optional, exact match) and `status` (optional, **defaults
+  to `FINALIZED`** when omitted — only finalized runs represent real paid amounts). Both are plain
+  derived-query filters (`findByStatus`/`findByPeriodIdAndStatus`), branched on in the service
+  layer by whether `periodId` was supplied — deliberately not a JPQL `(:periodId is null or ...)`
+  pattern, to avoid the exact PostgreSQL parameter-type-inference defect fixed elsewhere in
+  Reporting V1 (see D1's and D4's notes above, and
+  `docs/REPORTING_AUTHORIZATION_REVIEW.md`). Department/team/employee filters are not supported —
+  consistent with D1/D4's finding that no employee-to-department/team linkage exists anywhere in
+  this system, and payroll runs have no per-employee dimension at this report's level anyway.
+- **Metrics implemented**: `totalGrossPay`, `totalDeductions`, `totalEmployerContributions`,
+  `totalNetPay` — each a straight `sum(...)` of the already-materialized `PayrollRunLine` column
+  of the same name for that run. No formula is computed or invented. **There is deliberately no
+  combined "total payroll cost" field** — no such formula is documented anywhere in this codebase
+  (checked: no "cost to company"/CTC/"total cost" concept exists in the Payroll calculation
+  engine or requirements), so none was added; adding one would require GDB to supply the exact
+  formula first.
+- **Adjustment runs shown separately**: REGULAR and ADJUSTMENT runs are never merged or netted.
+  Each FINALIZED run — original or correction — is returned as its own row, carrying its own
+  `runType`/`correctsRunId`. A period with a correction applied therefore shows two rows, each
+  with its own totals (an adjustment run's totals can be negative, per Section K's signed-line
+  model) — not one combined period-level total. This was an explicit GDB decision (D3 Phase 1
+  review), chosen specifically to avoid inventing an adjustment-netting rule nowhere documented.
+- **Response shape**: a dedicated `PayrollCostSummaryDtos.Response` record — `runId`, `periodId`,
+  `periodYear`, `periodMonth`, `runType`, `correctsRunId`, `status`, `employeeCount`, the four
+  money totals above, `finalizedAt`. No employee-level field appears anywhere in it (no salary,
+  deduction, payslip, bank, or statutory data) — confirmed by a dedicated regression test
+  asserting the response body never contains an employee reference or any payslip/compensation
+  field name.
+- **Known limitation**: this report is per-run, not per-period. A period with both a finalized
+  REGULAR and a finalized ADJUSTMENT run will show as two rows; computing one netted period total
+  would require inventing an aggregation rule this task was explicitly told not to invent. If GDB
+  later wants a single period-level total, that is a separate, explicit decision.
+- **Frontend**: `frontend/employee-portal/app/payroll-summary/page.tsx` — period and status
+  filters (the only two the backend supports), stat cards for gross pay/deductions/employer
+  contributions/net pay, and a per-run table. No "Total Payroll Cost" metric is shown, matching
+  the backend. Handles 401/403/other API failure/empty result/success, the same pattern as every
+  other Reporting V1 page; a 403 alone is sufficient here (no `page.scope` field exists or is
+  needed, since the backend gate is already flat/unambiguous).
 
 ### D4. Expense Summary (Finance) — MUST HAVE V1
 
@@ -456,12 +488,12 @@ that don't need any of it — precisely the BI-platform over-build this task's s
 
 ## F. Are existing service APIs/events sufficient?
 
-**Yes, for four of five.** D1, D2, D4, and D5 need no new API and no new event consumption — only
+**Yes, for all five.** D1, D2, D4, and D5 needed no new API and no new event consumption — only
 new frontend pages composing existing, already-permissioned endpoints. D3 (Payroll Cost Summary)
-needs one small, same-service addition to an existing response (Section D3) — not a new API
-contract, not a new event, not a new service. No report in this set needs Reporting to consume any
-domain event at all, which also means `docs/architecture/COMMUNICATION.md`'s event-contract table
-is unaffected by this review.
+needed one small, same-service addition — a new `GET /payroll/runs/cost-summary` endpoint and a
+dedicated response DTO (Section D3), both implemented — not a new API *service*, not a new event,
+not a new permission. No report in this set consumes any domain event at all, which also means
+`docs/architecture/COMMUNICATION.md`'s event-contract table is unaffected by this review.
 
 ## G. Missing business decisions that block implementation
 
@@ -473,10 +505,10 @@ is unaffected by this review.
    needed for V1, and the generic `report.read.self/team/all`/`report.export` catalogue entries
    stay unused/deferred). This must be confirmed before implementation, even though it does not
    change *what* the reports show.
-2. **Whether Payroll should expose any aggregate cost figure at all** (Section D3) is a real
-   policy question, not an engineering one, given Payroll's deliberately strict isolation
-   elsewhere in this codebase. GDB/Finance should confirm this explicitly rather than have it
-   assumed by a reporting feature.
+2. **Whether Payroll should expose any aggregate cost figure at all** (Section D3) — **resolved**:
+   GDB/Finance explicitly directed this report's implementation (D3 Phase 1 review and final
+   decisions), confirming `payroll.read.all` is sufficient and no new permission is needed. D3 is
+   now implemented on that basis.
 3. **Export format/destination for `report.export`** (CSV? PDF? download vs. email?) is undefined
    anywhere. Not needed for the five MUST HAVE reports' on-screen value; should stay deferred
    until asked for.
@@ -485,9 +517,10 @@ is unaffected by this review.
    policy input, not a technical blocker — V1 can default to "whatever each owning service
    already retains" without inventing a retention rule.
 
-None of these blocks starting D1/D2/D4/D5 (no permission-naming ambiguity affects what data a
-Manager/HR caller already can see today); only D3 and the broader `report.*` permission-naming
-question in #1 are genuine blockers worth resolving before writing code.
+None of these blocked D1/D2/D4/D5 (no permission-naming ambiguity affects what data a Manager/HR
+caller already can see today). Item #2 (D3's policy question) is now resolved — see above. Item
+#1 (the broader `report.*` permission-naming question) remains open but is not a blocker for any
+of the five MUST HAVE reports, all of which reuse existing business-domain permissions directly.
 
 ## H. Classification summary
 
@@ -495,7 +528,7 @@ question in #1 are genuine blockers worth resolving before writing code.
 |---|---|
 | D1 Workforce/Headcount Summary (HR) | **MUST HAVE V1 — implemented** (total + status breakdown only; department/team/employment-type breakdown remain documented, unimplemented gaps; HR-vs-Manager authorization gap **fixed** by Reporting V1 authorization review Part A) |
 | D2 Leave Balance & Utilization Summary (HR/Manager) | **MUST HAVE V1 — implemented** |
-| D3 Payroll Cost Summary (Finance) | **MUST HAVE V1** — blocked on Section G items 1–2 |
+| D3 Payroll Cost Summary (Finance) | **MUST HAVE V1 — implemented** (per-run gross pay/deductions/employer contributions/net pay via a dedicated `GET /payroll/runs/cost-summary` endpoint, gated by existing `payroll.read.all`; REGULAR/ADJUSTMENT runs shown as separate rows, never netted; no "total payroll cost" field - no formula is documented for one) |
 | D4 Expense Summary (Finance) | **MUST HAVE V1 — implemented** (date-range + per-currency/status totals; Finance-exclusive gating **fixed** by Reporting V1 authorization review Part A; a separate, unrelated pre-existing query bug remains - see D4) |
 | D5 Team Overview (Manager) | **MUST HAVE V1** |
 | Employee self-report | **NOT REQUIRED NOW** — duplicates existing `/me` endpoints + Dashboard |
@@ -520,28 +553,28 @@ question in #1 are genuine blockers worth resolving before writing code.
    same-service addition — run-level cost totals); Expense Service only (#4 — no Employee Service
    call either, since D4's metrics are aggregate, never per-employee); Attendance + Leave +
    Expense + Employee Services (#5). No service outside this list is needed.
-4. **Is a reporting service/database needed?** **No.** All four implemented reports are served by
-   composing existing self/team/all-scoped APIs server-side in new frontend pages (the same
-   pattern the existing personal Dashboard already uses). D3 (not yet implemented) would need one
-   narrow addition to Payroll's own existing response. No new service, no new database, no new
-   event consumption, for any of the five.
-5. **Highest-priority implementation task**: ~~Team Overview (Manager)~~, ~~Leave Balance &
-   Utilization Summary~~, ~~Workforce / Headcount Summary~~, and ~~Expense Summary~~ — **all four
-   done** (see D5's, D2's, D1's, and D4's "Implementation note"). ~~Two authorization gaps~~ —
-   **both fixed** by Reporting V1 authorization review Part A
-   (docs/REPORTING_AUTHORIZATION_REVIEW.md): `GET /employees` and `GET /expenses/claims` now carry
-   a `page.scope` field taken directly from each service's own access-guard decision, and D1/D4
-   fail closed on anything other than `scope === "ALL"`. ~~A real-database test exposed a
-   pre-existing, unrelated Postgres parameter-type-inference bug in `EmployeeRepository`'s and
-   `ExpenseClaimRepository`'s optional list-filter JPQL, which already affected D1, D2, D4, and
-   D5's actual call patterns~~ — **FIXED** (separate follow-up task; see D1's and D4's notes above
-   for the exact root causes and fixes). `EmployeeRepository` now casts every `:query`/`:status`
-   occurrence, including the standalone `is null` check, to a concrete type; `ExpenseClaimRepository`
-   now uses `coalesce(:param, <sentinel>)` instead of a standalone `is null` check for `:from`/
-   `:to`/`:status`. Both confirmed against real PostgreSQL/Testcontainers (Employee: 9/9, Expense:
-   16/16 passing), with dedicated regression coverage for each of D1/D2/D4/D5's exact call
-   patterns. No authorization, business behavior, or RBAC changed. **Next recommended**: resolve
-   Section G's two open items (`report.*` permission naming; whether GDB wants Payroll to expose an
-   aggregate cost figure at all) to unblock Payroll Cost Summary (D3), the only unimplemented
-   report; Part B (dedicated `report.workforce.read`/`report.expense.read` permissions) remains
-   optional hardening, not required.
+4. **Is a reporting service/database needed?** **No.** D1/D2/D4/D5 are served by composing
+   existing self/team/all-scoped APIs server-side in new frontend pages (the same pattern the
+   existing personal Dashboard already uses). D3 is served by one dedicated, same-service
+   endpoint added to Payroll (`GET /payroll/runs/cost-summary`). No new service, no new database,
+   no new event consumption, for any of the five.
+5. **Implementation status**: ~~Team Overview (Manager)~~, ~~Leave Balance & Utilization
+   Summary~~, ~~Workforce / Headcount Summary~~, ~~Expense Summary~~, and ~~Payroll Cost
+   Summary~~ — **all five done** (see D5's, D2's, D1's, D4's, and D3's "Implementation note"/
+   detail above). ~~Two authorization gaps~~ — **both fixed** by Reporting V1 authorization review
+   Part A (docs/REPORTING_AUTHORIZATION_REVIEW.md): `GET /employees` and `GET /expenses/claims`
+   now carry a `page.scope` field taken directly from each service's own access-guard decision,
+   and D1/D4 fail closed on anything other than `scope === "ALL"`. ~~A real-database test exposed
+   a pre-existing, unrelated Postgres parameter-type-inference bug in `EmployeeRepository`'s and
+   `ExpenseClaimRepository`'s optional list-filter JPQL~~ — **FIXED** (separate follow-up task;
+   see D1's and D4's notes above for the exact root causes and fixes). `EmployeeRepository` now
+   casts every `:query`/`:status` occurrence, including the standalone `is null` check, to a
+   concrete type; `ExpenseClaimRepository` now uses `coalesce(:param, <sentinel>)` instead of a
+   standalone `is null` check for `:from`/`:to`/`:status`. Both confirmed against real
+   PostgreSQL/Testcontainers (Employee: 9/9, Expense: 16/16 passing). ~~Whether Payroll should
+   expose any aggregate cost figure at all~~ — **resolved and implemented** (D3, above): GDB
+   directed the implementation, confirming `payroll.read.all` is sufficient. No authorization,
+   business behavior, or RBAC changed by any of this work. **Remaining optional items**: Section
+   G item #1 (the broader `report.*` permission-naming question — not a blocker for any shipped
+   report) and Part B (dedicated `report.workforce.read`/`report.expense.read` permissions,
+   optional hardening, not required).
