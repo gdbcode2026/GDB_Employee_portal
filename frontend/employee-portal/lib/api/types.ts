@@ -54,6 +54,14 @@ export interface PageMeta {
   number: number;
   size: number;
   total: number;
+  /**
+   * Reporting V1 authorization review, Part A (docs/REPORTING_AUTHORIZATION_REVIEW.md): the
+   * authorization scope that actually produced this page, taken directly from the backend's own
+   * access-guard decision - never inferred from `items`. Only `GET /employees` and
+   * `GET /expenses/claims` populate this today; every other `PageMeta` consumer leaves it
+   * `undefined` and is unaffected.
+   */
+  scope?: "SELF" | "TEAM" | "ALL";
 }
 
 export interface PageResponse<T> {

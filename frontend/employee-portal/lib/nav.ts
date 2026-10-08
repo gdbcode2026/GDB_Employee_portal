@@ -17,6 +17,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/", label: "Dashboard", icon: "dashboard" },
       { href: "/team-overview", label: "Team Overview", icon: "organization" },
+      { href: "/workforce-summary", label: "Workforce Summary", icon: "organization" },
       { href: "/profile", label: "My Profile", icon: "profile" },
       { href: "/directory", label: "Directory", icon: "directory" },
       { href: "/organization", label: "Organization", icon: "organization" },
@@ -30,6 +31,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/leave-summary", label: "Leave Summary", icon: "leave" },
       { href: "/payroll", label: "Payroll", icon: "payroll" },
       { href: "/expenses", label: "Expenses", icon: "expenses" },
+      { href: "/expense-summary", label: "Expense Summary", icon: "expenses" },
       { href: "/projects", label: "Projects & Tasks", icon: "projects" },
       { href: "/performance", label: "Performance", icon: "performance" },
     ],
