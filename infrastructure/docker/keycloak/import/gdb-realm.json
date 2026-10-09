@@ -1,0 +1,872 @@
+{
+  "realm": "gdb",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "roles": {
+    "realm": [
+      {
+        "name": "EMPLOYEE",
+        "description": "GDB RBAC role: EMPLOYEE (docs/security/RBAC.md)"
+      },
+      {
+        "name": "MANAGER",
+        "description": "GDB RBAC role: MANAGER (docs/security/RBAC.md)"
+      },
+      {
+        "name": "HR",
+        "description": "GDB RBAC role: HR (docs/security/RBAC.md)"
+      },
+      {
+        "name": "FINANCE",
+        "description": "GDB RBAC role: FINANCE (docs/security/RBAC.md)"
+      },
+      {
+        "name": "ADMIN",
+        "description": "GDB RBAC role: ADMIN (docs/security/RBAC.md)"
+      },
+      {
+        "name": "SUPER_ADMIN",
+        "description": "GDB RBAC role: SUPER_ADMIN (docs/security/RBAC.md)"
+      }
+    ],
+    "client": {
+      "gdb-employee-portal": [
+        {
+          "name": "employee.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "employee.read.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "employee.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "employee.update.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "employee.update.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "organization.read",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "organization.manage",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "attendance.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "attendance.read.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "attendance.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "attendance.create.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "attendance.finalize.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "attendance.regularize.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "attendance.regularize.approve.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "attendance.regularize.approve.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "wfh.create.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "wfh.approve.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "wfh.approve.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "leave.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "leave.read.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "leave.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "leave.create.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "leave.cancel.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "leave.approve.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "leave.approve.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "payroll.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "payroll.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "payroll.process",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "payroll.approve",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "payslip.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "payslip.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "expense.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "expense.read.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "expense.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "expense.create.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "expense.update.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "expense.submit.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "expense.approve.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "expense.approve.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "expense.reimburse",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "project.read",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "project.manage",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "task.manage.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "task.manage.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "performance.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "performance.read.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "performance.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "performance.goal.manage.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "performance.review.submit.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "performance.manage",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "document.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "document.read.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "document.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "document.upload.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "document.manage",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "policy.publish",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "asset.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "asset.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "asset.request.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "asset.manage",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "asset.assign",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "workflow.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "workflow.read.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "workflow.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "workflow.decide.assigned",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "workflow.manage",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "notification.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "notification.manage",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "audit.read",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "report.read.self",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "report.read.team",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "report.read.all",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "report.export",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "identity.manage",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "role.manage",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "system.admin",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        },
+        {
+          "name": "breakglass.use",
+          "description": "GDB permission capability (docs/security/RBAC.md permission catalogue)",
+          "clientRole": true
+        }
+      ]
+    }
+  },
+  "clients": [
+    {
+      "clientId": "gdb-employee-portal",
+      "name": "GDB Employee Portal",
+      "description": "Server-side BFF client (Authorization Code + PKCE). Provider-side metadata only - no BFF/session code exists yet.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "local-development-only-client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/employees/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/employees/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "permissions",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "usermodel.clientRoleMapping.clientId": "gdb-employee-portal",
+            "claim.name": "permissions",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "audience-gdb-employee-portal",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "gdb-employee-portal",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "employee.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "EMPLOYEE",
+      "lastName": "Test",
+      "email": "employee.test@gdb.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "local-development-only",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "EMPLOYEE"
+      ],
+      "clientRoles": {
+        "gdb-employee-portal": [
+          "employee.read.self",
+          "employee.update.self",
+          "attendance.read.self",
+          "attendance.create.self",
+          "attendance.regularize.self",
+          "wfh.create.self",
+          "leave.read.self",
+          "leave.create.self",
+          "leave.cancel.self",
+          "payroll.read.self",
+          "payslip.read.self",
+          "expense.read.self",
+          "expense.create.self",
+          "expense.update.self",
+          "expense.submit.self",
+          "project.read",
+          "task.manage.self",
+          "performance.read.self",
+          "performance.goal.manage.self",
+          "document.read.self",
+          "document.upload.self",
+          "asset.read.self",
+          "asset.request.self",
+          "workflow.read.self",
+          "workflow.decide.assigned",
+          "notification.read.self"
+        ]
+      }
+    },
+    {
+      "username": "manager.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "MANAGER",
+      "lastName": "Test",
+      "email": "manager.test@gdb.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "local-development-only",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "MANAGER"
+      ],
+      "clientRoles": {
+        "gdb-employee-portal": [
+          "employee.read.self",
+          "employee.update.self",
+          "attendance.read.self",
+          "attendance.create.self",
+          "attendance.regularize.self",
+          "wfh.create.self",
+          "leave.read.self",
+          "leave.create.self",
+          "leave.cancel.self",
+          "payroll.read.self",
+          "payslip.read.self",
+          "expense.read.self",
+          "expense.create.self",
+          "expense.update.self",
+          "expense.submit.self",
+          "project.read",
+          "task.manage.self",
+          "performance.read.self",
+          "performance.goal.manage.self",
+          "document.read.self",
+          "document.upload.self",
+          "asset.read.self",
+          "asset.request.self",
+          "workflow.read.self",
+          "workflow.decide.assigned",
+          "notification.read.self",
+          "employee.read.team",
+          "attendance.read.team",
+          "attendance.finalize.team",
+          "attendance.regularize.approve.team",
+          "wfh.approve.team",
+          "leave.read.team",
+          "leave.approve.team",
+          "expense.read.team",
+          "expense.approve.team",
+          "task.manage.team",
+          "performance.read.team",
+          "performance.review.submit.team",
+          "document.read.team",
+          "workflow.read.team",
+          "report.read.team"
+        ]
+      }
+    },
+    {
+      "username": "hr.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "HR",
+      "lastName": "Test",
+      "email": "hr.test@gdb.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "local-development-only",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "HR"
+      ],
+      "clientRoles": {
+        "gdb-employee-portal": [
+          "employee.read.self",
+          "employee.update.self",
+          "attendance.read.self",
+          "attendance.create.self",
+          "attendance.regularize.self",
+          "wfh.create.self",
+          "leave.read.self",
+          "leave.create.self",
+          "leave.cancel.self",
+          "payroll.read.self",
+          "payslip.read.self",
+          "expense.read.self",
+          "expense.create.self",
+          "expense.update.self",
+          "expense.submit.self",
+          "project.read",
+          "task.manage.self",
+          "performance.read.self",
+          "performance.goal.manage.self",
+          "document.read.self",
+          "document.upload.self",
+          "asset.read.self",
+          "asset.request.self",
+          "workflow.read.self",
+          "workflow.decide.assigned",
+          "notification.read.self",
+          "employee.read.all",
+          "employee.update.all",
+          "organization.read",
+          "organization.manage",
+          "leave.read.all",
+          "leave.approve.all",
+          "document.read.all",
+          "document.manage",
+          "policy.publish",
+          "workflow.read.all",
+          "workflow.manage",
+          "performance.read.all",
+          "performance.manage",
+          "report.read.all"
+        ]
+      }
+    },
+    {
+      "username": "finance.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "FINANCE",
+      "lastName": "Test",
+      "email": "finance.test@gdb.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "local-development-only",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "FINANCE"
+      ],
+      "clientRoles": {
+        "gdb-employee-portal": [
+          "employee.read.self",
+          "employee.update.self",
+          "attendance.read.self",
+          "attendance.create.self",
+          "attendance.regularize.self",
+          "wfh.create.self",
+          "leave.read.self",
+          "leave.create.self",
+          "leave.cancel.self",
+          "payroll.read.self",
+          "payslip.read.self",
+          "expense.read.self",
+          "expense.create.self",
+          "expense.update.self",
+          "expense.submit.self",
+          "project.read",
+          "task.manage.self",
+          "performance.read.self",
+          "performance.goal.manage.self",
+          "document.read.self",
+          "document.upload.self",
+          "asset.read.self",
+          "asset.request.self",
+          "workflow.read.self",
+          "workflow.decide.assigned",
+          "notification.read.self",
+          "expense.read.all",
+          "expense.approve.all",
+          "expense.reimburse",
+          "payroll.read.all",
+          "payroll.process",
+          "payslip.read.all",
+          "report.read.all"
+        ]
+      }
+    },
+    {
+      "username": "admin.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "ADMIN",
+      "lastName": "Test",
+      "email": "admin.test@gdb.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "local-development-only",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ADMIN"
+      ],
+      "clientRoles": {
+        "gdb-employee-portal": [
+          "employee.read.self",
+          "employee.update.self",
+          "attendance.read.self",
+          "attendance.create.self",
+          "attendance.regularize.self",
+          "wfh.create.self",
+          "leave.read.self",
+          "leave.create.self",
+          "leave.cancel.self",
+          "payroll.read.self",
+          "payslip.read.self",
+          "expense.read.self",
+          "expense.create.self",
+          "expense.update.self",
+          "expense.submit.self",
+          "project.read",
+          "task.manage.self",
+          "performance.read.self",
+          "performance.goal.manage.self",
+          "document.read.self",
+          "document.upload.self",
+          "asset.read.self",
+          "asset.request.self",
+          "workflow.read.self",
+          "workflow.decide.assigned",
+          "notification.read.self",
+          "identity.manage",
+          "role.manage",
+          "system.admin"
+        ]
+      }
+    },
+    {
+      "username": "superadmin.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "SUPER_ADMIN",
+      "lastName": "Test",
+      "email": "superadmin.test@gdb.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "local-development-only",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "SUPER_ADMIN"
+      ],
+      "clientRoles": {
+        "gdb-employee-portal": [
+          "employee.read.self",
+          "employee.read.team",
+          "employee.read.all",
+          "employee.update.self",
+          "employee.update.all",
+          "organization.read",
+          "organization.manage",
+          "attendance.read.self",
+          "attendance.read.team",
+          "attendance.read.all",
+          "attendance.create.self",
+          "attendance.finalize.team",
+          "attendance.regularize.self",
+          "attendance.regularize.approve.team",
+          "attendance.regularize.approve.all",
+          "wfh.create.self",
+          "wfh.approve.team",
+          "wfh.approve.all",
+          "leave.read.self",
+          "leave.read.team",
+          "leave.read.all",
+          "leave.create.self",
+          "leave.cancel.self",
+          "leave.approve.team",
+          "leave.approve.all",
+          "payroll.read.self",
+          "payroll.read.all",
+          "payroll.process",
+          "payroll.approve",
+          "payslip.read.self",
+          "payslip.read.all",
+          "expense.read.self",
+          "expense.read.team",
+          "expense.read.all",
+          "expense.create.self",
+          "expense.update.self",
+          "expense.submit.self",
+          "expense.approve.team",
+          "expense.approve.all",
+          "expense.reimburse",
+          "project.read",
+          "project.manage",
+          "task.manage.self",
+          "task.manage.team",
+          "performance.read.self",
+          "performance.read.team",
+          "performance.read.all",
+          "performance.goal.manage.self",
+          "performance.review.submit.team",
+          "performance.manage",
+          "document.read.self",
+          "document.read.team",
+          "document.read.all",
+          "document.upload.self",
+          "document.manage",
+          "policy.publish",
+          "asset.read.self",
+          "asset.read.all",
+          "asset.request.self",
+          "asset.manage",
+          "asset.assign",
+          "workflow.read.self",
+          "workflow.read.team",
+          "workflow.read.all",
+          "workflow.decide.assigned",
+          "workflow.manage",
+          "notification.read.self",
+          "notification.manage",
+          "audit.read",
+          "report.read.self",
+          "report.read.team",
+          "report.read.all",
+          "report.export",
+          "identity.manage",
+          "role.manage",
+          "system.admin",
+          "breakglass.use"
+        ]
+      }
+    }
+  ]
+}
