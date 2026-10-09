@@ -7,10 +7,10 @@ export function AuthRequiredNotice() {
         <Icon name="signIn" size={18} />
       </span>
       <h2 id="auth-required-heading">Sign-in required</h2>
-      <p>
-        This page needs a signed-in session. Authentication will be available once GDB selects
-        an identity provider; no login is implemented in this foundation.
-      </p>
+      <p>Your session has ended or is no longer valid. Sign in again to continue.</p>
+      <a className="btn btn-primary" href="/employees/api/auth/login">
+        Sign in
+      </a>
     </section>
   );
 }

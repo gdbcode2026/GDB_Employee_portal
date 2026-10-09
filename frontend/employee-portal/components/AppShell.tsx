@@ -116,6 +116,9 @@ export function AppShell({ children, displayName, jobTitle, unreadNotificationCo
                 <span className="role">{jobTitle ?? "View profile"}</span>
               </span>
             </Link>
+            <a href="/employees/api/auth/logout" className="icon-btn" aria-label="Sign out">
+              <Icon name="logout" size={19} />
+            </a>
           </div>
         </header>
 
